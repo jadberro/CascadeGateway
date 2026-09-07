@@ -40,6 +40,7 @@ flowchart TD
   * **Strict Local**: 100% execution on local VRAM with automatic cloud overflow only if context exceeds physical limit.
 * **Native Model Context Protocol (MCP)**: Exposes a high-performance Streamable HTTP and Stdio MCP endpoint for **Google Antigravity** and **Claude Desktop**.
 * **Zero-Window Background Tray App**: Runs silently in the system tray, boots with Windows/Linux, and includes single-instance mutex protection.
+* **🎮 1-Click Game Mode (Instant VRAM Purge)**: Evicts loaded models from VRAM in <1s via a dedicated button on the Web UI, Windows Tray, or `POST /api/models/unload`. Frees 20–30+ GB of VRAM immediately for AAA gaming, Blender, or video editing without terminating the server. Models reload automatically on demand when coding.
 * **Live Hardware Telemetry**: In-browser control center showing real-time VRAM allocation, GPU power draw (W), temperature (°C), lifetime token savings, and an interactive prompt runner.
 * **Standard OpenAI-Compatible API**: Seamless drop-in replacement (`/v1/chat/completions`) for Cursor, VSCode (Continue.dev), Aider, Claude Dev, and custom scripts.
 

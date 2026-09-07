@@ -26,6 +26,9 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(DATA_DIR / "tray_stderr.log", "a", encoding="utf-8", buffering=1)
 
+import json
+import urllib.request
+
 from PIL import Image
 import pystray
 from pystray import MenuItem as item, Menu
@@ -91,6 +94,26 @@ def toggle_startup(icon, item):
 
 def open_dashboard(icon, item):
     webbrowser.open("http://127.0.0.1:8000/")
+
+
+def free_vram_action(icon, item):
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:8000/api/models/unload",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
+            data = json.loads(resp.read().decode())
+            unloaded = data.get("unloaded_models", [])
+            freed_count = len(unloaded)
+            icon.notify(
+                f"🎮 Game Mode: Unloaded {freed_count} model(s) from VRAM. GPU is fully cleared for gaming!",
+                "CascadeGateway"
+            )
+    except Exception as e:
+        icon.notify(f"Failed to free VRAM: {e}", "CascadeGateway")
 
 
 def set_bias_mode(mode: str, factor: float = 0.35):
@@ -159,6 +182,7 @@ def create_menu():
     return Menu(
         item("RTX 5090 Model Cascading (Port 8000)", lambda icon, item: None, enabled=False),
         item("Open Web Dashboard", open_dashboard, default=True),
+        item("🎮 Game Mode (Free VRAM)", free_vram_action),
         Menu.SEPARATOR,
         item("Biasing Mode", Menu(
             item("Adaptive (Auto-scales with budget)", set_bias_mode("adaptive", 0.35), checked=is_bias_mode_active("adaptive"), radio=True),

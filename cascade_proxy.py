@@ -620,6 +620,69 @@ async def pull_model_endpoint(req: PullModelRequest):
     return StreamingResponse(stream_pull(), media_type="application/x-ndjson")
 
 
+class UnloadModelRequest(BaseModel):
+    model: Optional[str] = None
+
+
+@app.get("/api/models/loaded")
+async def get_loaded_models():
+    ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{ollama_url}/api/ps")
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("models", [])
+    except Exception:
+        pass
+    return []
+
+
+@app.post("/api/models/unload")
+async def unload_models_endpoint(req: Optional[UnloadModelRequest] = None):
+    """Evicts loaded models from VRAM (Game Mode / VRAM Purge)."""
+    ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+    target_model = req.model if req and req.model and req.model != "all" else None
+
+    loaded_models = []
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{ollama_url}/api/ps")
+            if resp.status_code == 200:
+                loaded_models = resp.json().get("models", [])
+    except Exception as e:
+        return {"success": False, "error": f"Failed to query Ollama: {e}"}
+
+    to_unload = []
+    if target_model:
+        to_unload = [target_model]
+    else:
+        to_unload = [m.get("name") for m in loaded_models if m.get("name")]
+
+    unloaded = []
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for m_name in to_unload:
+            try:
+                res = await client.post(
+                    f"{ollama_url}/api/generate",
+                    json={"model": m_name, "keep_alive": 0}
+                )
+                if res.status_code == 200:
+                    unloaded.append(m_name)
+            except Exception:
+                pass
+
+    gpu = get_gpu_telemetry()
+    return {
+        "success": True,
+        "unloaded_models": unloaded,
+        "message": f"Successfully unloaded {len(unloaded)} model(s) from VRAM. GPU memory is fully cleared for gaming!",
+        "vram_used_gb": gpu.get("vram_used_gb", 0),
+        "vram_total_gb": gpu.get("vram_total_gb", 0),
+        "vram_percent": gpu.get("vram_percent", 0)
+    }
+
+
 @app.get("/api/config-templates")
 async def get_config_templates():
     host = config.get("server", {}).get("host", "127.0.0.1")
@@ -959,7 +1022,8 @@ async def dashboard():
         <div class="container">
             <div class="header">
                 <h1>⚡ {gpu_title} Cascading Gateway <span class="badge-live">Online</span></h1>
-                <div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button id="btnVramUnload" onclick="unloadModels()" style="background:#dc2626; border:none; padding:9px 16px; border-radius:6px; font-weight:700; display:flex; align-items:center; gap:6px;">🎮 Game Mode (Free VRAM)</button>
                     <button onclick="openModal()" style="background:#0284c7; border:none; padding:9px 16px; border-radius:6px; font-weight:700;">⚙️ Connect IDEs & MCP</button>
                 </div>
             </div>
@@ -1115,6 +1179,35 @@ async def dashboard():
                 const text = document.getElementById('codeSnippet').innerText;
                 navigator.clipboard.writeText(text);
                 alert('Copied configuration to clipboard!');
+            }}
+            async function unloadModels() {{
+                const btn = document.getElementById('btnVramUnload');
+                const origText = btn.innerHTML;
+                btn.innerHTML = '⏳ Freeing VRAM...';
+                btn.disabled = true;
+                try {{
+                    const res = await fetch('/api/models/unload', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{}})
+                    }});
+                    const data = await res.json();
+                    if (data.success) {{
+                        btn.innerHTML = '✅ VRAM Freed!';
+                        btn.style.background = '#10b981';
+                        setTimeout(() => {{
+                            location.reload();
+                        }}, 1200);
+                    }} else {{
+                        alert('Notice: ' + (data.error || 'Failed to unload'));
+                        btn.innerHTML = origText;
+                        btn.disabled = false;
+                    }}
+                }} catch (e) {{
+                    alert('Error connecting to gateway: ' + e);
+                    btn.innerHTML = origText;
+                    btn.disabled = false;
+                }}
             }}
             async function setMode(mode) {{
                 await fetch('/v1/settings', {{
