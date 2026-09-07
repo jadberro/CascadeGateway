@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +36,7 @@ from cascadegateway.core.router import (
     call_ollama_non_streaming,
     call_gemini_non_streaming,
 )
+from cascadegateway.core.classifier import route_request
 from cascadegateway.api import models, pipeline
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -150,6 +151,8 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = None
     stream: Optional[bool] = False
+    tools: Optional[List[Dict[str, Any]]] = None
+    functions: Optional[List[Dict[str, Any]]] = None
 
 
 @app.post("/v1/chat/completions")
@@ -163,16 +166,75 @@ async def chat_completions(req: ChatRequest):
     available_local_models = await get_available_ollama_models(ollama_url)
     best_local_model = select_best_local_model(available_local_models)
 
-    route_target, route_reason, comp_score = evaluate_routing(messages, req_model)
+    # Execute Phase 1 (Structural & Hardware Validation) and Phase 2 (Ultra-Fast Lexical Scan) <5ms
+    decision = route_request(
+        messages=messages,
+        tools=req.tools or req.functions,
+        requested_model=req_model,
+        hardware_info=HARDWARE_INFO,
+        biasing_state=BIASING_STATE
+    )
+
+    route_target = decision["route"]
+    route_reason = decision["reason"]
+    comp_score = decision["complexity_score"]
     prompt_tokens = count_messages_tokens(messages)
     api_key = os.getenv("GEMINI_API_KEY") or ""
 
     user_snippet = ""
     for m in reversed(messages):
         if m.get("role") == "user":
-            user_snippet = str(m.get("content", ""))
+            content = m.get("content", "")
+            user_snippet = content if isinstance(content, str) else json.dumps(content)
             break
 
+    # Determine Cloud Model Fallback
+    cloud_model = config.get("cloud", {}).get("default_model", "gemini-2.5-flash")
+    if comp_score > 0.85:
+        cloud_model = config.get("cloud", {}).get("pro_model", "gemini-2.5-pro")
+
+    # PHASE 3: STREAMING EXECUTION WITH 3-TOKEN LOOKAHEAD BUFFER & FAILOVER
+    if req.stream:
+        if route_target == "local" and available_local_models:
+            from cascadegateway.core.streaming import stream_with_lookahead_failover
+            # Check if model is currently warm in VRAM
+            from cascadegateway.api.models import get_loaded_models
+            try:
+                loaded = await get_loaded_models()
+                is_loaded = any(best_local_model in m.get("name", "") for m in loaded)
+            except Exception:
+                is_loaded = True
+
+            generator = stream_with_lookahead_failover(
+                local_url=ollama_url,
+                local_model=best_local_model,
+                cloud_model=cloud_model,
+                gemini_api_key=api_key,
+                messages=messages,
+                temperature=req.temperature or 0.7,
+                max_tokens=req.max_tokens,
+                is_loaded=is_loaded,
+                user_snippet=user_snippet
+            )
+            return StreamingResponse(generator, media_type="text/event-stream")
+
+        # Directly routed to Cloud (Streamed)
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Query escalated to Cloud ({route_reason}), but GEMINI_API_KEY is not configured in .env."
+            )
+        from cascadegateway.core.streaming import stream_gemini_fallback
+        import uuid
+        chunk_id = f"chatcmpl-cloud-{uuid.uuid4().hex[:12]}"
+        METRICS["cloud_gemini_requests"] += 1
+        save_persistent_metrics()
+        return StreamingResponse(
+            stream_gemini_fallback(cloud_model, messages, api_key, chunk_id, req.temperature or 0.7, req.max_tokens),
+            media_type="text/event-stream"
+        )
+
+    # NON-STREAMING EXECUTION WITH LOOKAHEAD FAILOVER
     if route_target == "local" and available_local_models:
         try:
             resp = await call_ollama_non_streaming(
@@ -184,16 +246,17 @@ async def chat_completions(req: ChatRequest):
             METRICS["local_5090_requests"] += 1
             METRICS["tokens_saved_prompt"] += prompt_tokens
             METRICS["tokens_saved_completion"] += comp_tokens
-            record_request_history(user_snippet, "Local GPU", best_local_model, duration, prompt_tokens + comp_tokens, 0)
+            record_request_history(user_snippet, "Local GPU (Validated)", best_local_model, duration, prompt_tokens + comp_tokens, 0)
             resp["_routing_info"] = {
-                "tier": "Local GPU",
+                "tier": "Local GPU (Phase 2 Lexical)",
                 "reason": route_reason,
                 "model": best_local_model,
-                "tokens_saved": prompt_tokens + comp_tokens
+                "tokens_saved": prompt_tokens + comp_tokens,
+                "routing_latency_ms": decision["latency_ms"]
             }
             return JSONResponse(content=resp)
         except Exception as e:
-            print(f"[CASCADING NOTICE] Local generation failed ({e}). Cascading to Google Gemini...")
+            print(f"[CASCADING NOTICE] Local generation failed ({e}). Replaying to Google Gemini Cloud...")
             METRICS["cloud_fallbacks"] += 1
 
     if not api_key:
@@ -202,10 +265,6 @@ async def chat_completions(req: ChatRequest):
             detail=f"Query routed/cascaded to Cloud ({route_reason}), but GEMINI_API_KEY is not configured in .env."
         )
 
-    cloud_model = config.get("cloud", {}).get("default_model", "gemini-2.5-flash")
-    if comp_score > 0.85:
-        cloud_model = config.get("cloud", {}).get("pro_model", "gemini-2.5-pro")
-
     resp = await call_gemini_non_streaming(cloud_model, messages, api_key, temperature=req.temperature, max_tokens=req.max_tokens)
     duration = time.time() - t0
     comp_tokens = resp.get("usage", {}).get("completion_tokens", 0)
@@ -213,7 +272,12 @@ async def chat_completions(req: ChatRequest):
     METRICS["cloud_tokens_prompt"] += prompt_tokens
     METRICS["cloud_tokens_completion"] += comp_tokens
     record_request_history(user_snippet, "Google Gemini Cloud", cloud_model, duration, 0, prompt_tokens + comp_tokens)
-    resp["_routing_info"] = {"tier": "Google Gemini Cloud", "reason": route_reason, "model": cloud_model}
+    resp["_routing_info"] = {
+        "tier": "Google Gemini Cloud",
+        "reason": route_reason,
+        "model": cloud_model,
+        "routing_latency_ms": decision["latency_ms"]
+    }
     return JSONResponse(content=resp)
 
 

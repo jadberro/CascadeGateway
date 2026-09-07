@@ -2,8 +2,23 @@
 CascadeGateway Core Package
 """
 
-from cascadegateway.core.config import config, BASE_DIR, DATA_DIR, PID_FILE, METRICS_FILE, acquire_single_instance_lock, cleanup_single_instance_lock
-from cascadegateway.core.hardware import HARDWARE_INFO, TIER_PROFILES, get_tier_for_vram, detect_gpu_hardware, match_best_model, get_gpu_telemetry
+from cascadegateway.core.config import (
+    config,
+    BASE_DIR,
+    DATA_DIR,
+    PID_FILE,
+    METRICS_FILE,
+    acquire_single_instance_lock,
+    cleanup_single_instance_lock,
+)
+from cascadegateway.core.hardware import (
+    HARDWARE_INFO,
+    TIER_PROFILES,
+    get_tier_for_vram,
+    detect_gpu_hardware,
+    match_best_model,
+    get_gpu_telemetry,
+)
 from cascadegateway.core.router import (
     METRICS,
     SERVER_START_TIME,
@@ -26,4 +41,15 @@ from cascadegateway.core.router import (
     get_available_ollama_models,
     call_ollama_non_streaming,
     call_gemini_non_streaming,
+)
+from cascadegateway.core.classifier import (
+    validate_structure,
+    LexicalClassifier,
+    CLASSIFIER,
+    route_request,
+)
+from cascadegateway.core.streaming import (
+    stream_with_lookahead_failover,
+    stream_gemini_fallback,
+    make_openai_sse_chunk,
 )

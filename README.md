@@ -43,6 +43,7 @@ flowchart TD
   * **🚀 Solo Sprint**: Instant local coding via `qwen2.5-coder:32b` for quick functions, tests, and scripts.
   * **🌐 Deep Context**: Gemini 2.5 Flash ingests massive repository files (1M context) $\rightarrow$ modular execution on local 5090.
   * **🔬 Math & Algo Proof**: Deep Chain-of-Thought formal verification for cryptography and concurrency algorithms.
+* **🛡️ Sub-5ms Intelligent Routing & 3-Token Lookahead Failover**: Three-phase classification pipeline: Phase 1 Structural & VRAM Budget Validation (<1ms, prevents swapping to system RAM), Phase 2 Single-Pass Lexical Scan (<1ms), and Phase 3 Resilient Streaming with an in-memory 3-token lookahead buffer that transparently replays stalled local requests to Gemini Cloud without dropping client connections or throwing IDE error popups.
 * **Native Model Context Protocol (MCP)**: Exposes a high-performance Streamable HTTP and Stdio MCP endpoint for **Google Antigravity** and **Claude Desktop**.
 * **🎛️ Dynamic Model Selection**: Select any installed local model for both the **Architect** role (`deepseek-r1:14b`, `gemma4:26b`, etc.) and the **Builder** role (`qwen2.5-coder:32b`, etc.) directly from the Web UI toolbar or Windows Tray submenus. Automatically detects newly pulled models from Ollama without restarting the gateway.
 * **Zero-Window Background Tray App**: Runs silently in the system tray, boots with Windows/Linux, and includes single-instance mutex protection.
