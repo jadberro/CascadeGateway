@@ -65,16 +65,16 @@ flowchart TD
 
 ### Windows (One-Click)
 ```cmd
-git clone https://github.com/your-username/model-cascade.git
-cd model-cascade
+git clone https://github.com/jadberro/CascadeGateway.git
+cd CascadeGateway
 setup.bat
 ```
 *Creates `.venv`, installs dependencies, auto-generates your desktop shortcut, and places an auto-start shortcut in your Windows Startup menu.*
 
 ### Linux / macOS
 ```bash
-git clone https://github.com/your-username/model-cascade.git
-cd model-cascade
+git clone https://github.com/jadberro/CascadeGateway.git
+cd CascadeGateway
 chmod +x setup.sh
 ./setup.sh
 ```
