@@ -176,6 +176,17 @@ def is_model_active(model_name: str):
     return check
 
 
+def set_model_selection_tray(role: str, model_name: str):
+    def action(icon, item):
+        cascade_proxy.MODEL_SELECTION_STATE[role] = model_name
+        icon.notify(f"{role.capitalize()} Model set to: {model_name}", "CascadeGateway")
+    return action
+
+
+def is_model_selected(role: str, model_name: str) -> bool:
+    return cascade_proxy.MODEL_SELECTION_STATE.get(role, "auto") == model_name
+
+
 def get_stats_text(item):
     saved = cascade_proxy.METRICS["tokens_saved_prompt"] + cascade_proxy.METRICS["tokens_saved_completion"]
     reqs = cascade_proxy.METRICS["total_requests"]
@@ -214,15 +225,23 @@ def create_menu():
             item("🌐 Deep Context (Gemini + 5090)", set_workflow_mode_action("deep_context"), checked=is_workflow_mode_active("deep_context"), radio=True),
             item("🔬 Math & Algo Proof", set_workflow_mode_action("algo"), checked=is_workflow_mode_active("algo"), radio=True),
         )),
+        item("Architect Model", Menu(
+            item("Auto-Detect", lambda icon, item: set_model_selection_tray("architect", "auto")(icon, item), checked=lambda item: is_model_selected("architect", "auto"), radio=True),
+            item("🧠 deepseek-r1:14b (CoT)", lambda icon, item: set_model_selection_tray("architect", "deepseek-r1:14b")(icon, item), checked=lambda item: is_model_selected("architect", "deepseek-r1:14b"), radio=True),
+            item("🏛️ gemma4:26b (General)", lambda icon, item: set_model_selection_tray("architect", "gemma4:26b")(icon, item), checked=lambda item: is_model_selected("architect", "gemma4:26b"), radio=True),
+            item("⚡ qwen2.5-coder:32b", lambda icon, item: set_model_selection_tray("architect", "qwen2.5-coder:32b")(icon, item), checked=lambda item: is_model_selected("architect", "qwen2.5-coder:32b"), radio=True),
+        )),
+        item("Builder Model", Menu(
+            item("Auto-Detect", lambda icon, item: set_model_selection_tray("builder", "auto")(icon, item), checked=lambda item: is_model_selected("builder", "auto"), radio=True),
+            item("⚡ qwen2.5-coder:32b (Primary)", lambda icon, item: set_model_selection_tray("builder", "qwen2.5-coder:32b")(icon, item), checked=lambda item: is_model_selected("builder", "qwen2.5-coder:32b"), radio=True),
+            item("🧠 deepseek-r1:14b", lambda icon, item: set_model_selection_tray("builder", "deepseek-r1:14b")(icon, item), checked=lambda item: is_model_selected("builder", "deepseek-r1:14b"), radio=True),
+            item("🏛️ gemma4:26b", lambda icon, item: set_model_selection_tray("builder", "gemma4:26b")(icon, item), checked=lambda item: is_model_selected("builder", "gemma4:26b"), radio=True),
+        )),
         item("Biasing Mode", Menu(
             item("Adaptive (Auto-scales with budget)", set_bias_mode("adaptive", 0.35), checked=is_bias_mode_active("adaptive"), radio=True),
             item("Manual: 50% Local Bias", set_bias_mode("manual", 0.50), checked=is_bias_mode_active("manual", 0.50), radio=True),
             item("Manual: 80% Local Bias", set_bias_mode("manual", 0.80), checked=is_bias_mode_active("manual", 0.80), radio=True),
             item("Strict 100% Local (5090 Only)", set_bias_mode("local_only", 1.0), checked=is_bias_mode_active("local_only"), radio=True),
-        )),
-        item("Primary 5090 Model", Menu(
-            item("qwen2.5-coder:32b (Primary Coding)", set_primary_model("qwen2.5-coder:32b"), checked=is_model_active("qwen2.5-coder:32b"), radio=True),
-            item("gemma4:26b (General Reasoning)", set_primary_model("gemma4:26b"), checked=is_model_active("gemma4:26b"), radio=True),
         )),
         Menu.SEPARATOR,
         item(get_stats_text, lambda icon, item: None, enabled=False),

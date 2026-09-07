@@ -245,6 +245,21 @@ def select_architect_model(installed_models: List[str]) -> str:
     return HARDWARE_INFO["tier"]["recommended_coding"]
 
 
+MODEL_SELECTION_STATE = {
+    "architect": "auto",
+    "builder": "auto"
+}
+
+
+def resolve_active_model(role: str, installed_models: List[str]) -> str:
+    user_choice = MODEL_SELECTION_STATE.get(role, "auto")
+    if user_choice and user_choice != "auto" and user_choice in installed_models:
+        return user_choice
+    if role == "architect":
+        return select_architect_model(installed_models)
+    return select_best_local_model(installed_models)
+
+
 app = FastAPI(
     title="RTX 5090 Model Cascading Gateway",
     description="Intelligent routing and token biasing between local RTX 5090 and Google Gemini",
@@ -784,6 +799,34 @@ class PipelineBuildRequest(BaseModel):
     builder_model: Optional[str] = None
 
 
+class ModelSelectionUpdate(BaseModel):
+    architect: Optional[str] = None
+    builder: Optional[str] = None
+
+
+@app.get("/api/models/selection")
+async def get_model_selection():
+    ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+    installed = await get_available_ollama_models(ollama_url)
+    return {
+        "selection": MODEL_SELECTION_STATE,
+        "installed_models": installed,
+        "resolved": {
+            "architect": resolve_active_model("architect", installed),
+            "builder": resolve_active_model("builder", installed)
+        }
+    }
+
+
+@app.post("/api/models/selection")
+async def set_model_selection(req: ModelSelectionUpdate):
+    if req.architect is not None:
+        MODEL_SELECTION_STATE["architect"] = req.architect
+    if req.builder is not None:
+        MODEL_SELECTION_STATE["builder"] = req.builder
+    return await get_model_selection()
+
+
 @app.get("/v1/workflow/modes")
 async def get_workflow_modes():
     return {
@@ -806,7 +849,7 @@ async def pipeline_architect_endpoint(req: PipelineArchitectRequest):
     t0 = time.time()
     ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
     installed = await get_available_ollama_models(ollama_url)
-    model = req.architect_model or select_architect_model(installed)
+    model = req.architect_model or resolve_active_model("architect", installed)
 
     user_content = f"TASK SPECIFICATION:\n{req.prompt}"
     if req.context:
@@ -845,7 +888,7 @@ async def pipeline_refine_endpoint(req: PipelineRefineRequest):
     t0 = time.time()
     ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
     installed = await get_available_ollama_models(ollama_url)
-    model = req.architect_model or select_architect_model(installed)
+    model = req.architect_model or resolve_active_model("architect", installed)
 
     refine_prompt = f"""ORIGINAL TASK:
 {req.prompt}
@@ -891,7 +934,7 @@ async def pipeline_build_endpoint(req: PipelineBuildRequest):
     t0 = time.time()
     ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
     installed = await get_available_ollama_models(ollama_url)
-    model = req.builder_model or select_best_local_model(installed)
+    model = req.builder_model or resolve_active_model("builder", installed)
 
     build_prompt = f"""TASK:
 {req.prompt}
@@ -1239,6 +1282,10 @@ async def dashboard():
     rec_model = tier["recommended_coding"]
     active_wf_mode = WORKFLOW_STATE["active_mode"]
     wf_info = WORKFLOW_MODES.get(active_wf_mode, WORKFLOW_MODES["architect"])
+    ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+    installed_models = await get_available_ollama_models(ollama_url)
+    resolved_arch = resolve_active_model("architect", installed_models)
+    resolved_build = resolve_active_model("builder", installed_models)
 
     # Build recent requests table rows
     rows_html = ""
@@ -1370,6 +1417,23 @@ async def dashboard():
                     <span id="pipelineStatus" style="font-size:12px; font-weight:600; color:#10b981;">Ready</span>
                 </h3>
                 
+                <!-- Model Selection Toolbar -->
+                <div style="background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; margin-bottom:14px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:12px; font-weight:700; color:#38bdf8;">🧠 Architect:</span>
+                        <select id="selectArchitect" onchange="changeModelSelection()" style="background:#131b2e; border:1px solid #334155; color:#f8fafc; padding:5px 10px; border-radius:6px; font-size:12px; outline:none; cursor:pointer;">
+                            <option value="auto">⚙️ Auto-Detect ({resolved_arch})</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:12px; font-weight:700; color:#10b981;">⚡ Builder:</span>
+                        <select id="selectBuilder" onchange="changeModelSelection()" style="background:#131b2e; border:1px solid #334155; color:#f8fafc; padding:5px 10px; border-radius:6px; font-size:12px; outline:none; cursor:pointer;">
+                            <option value="auto">⚙️ Auto-Detect ({resolved_build})</option>
+                        </select>
+                    </div>
+                    <span id="modelSelectionStatus" style="font-size:11px; color:#64748b; margin-left:auto;">Synced with Ollama</span>
+                </div>
+
                 <div style="margin-bottom:12px;">
                     <label style="font-size:12px; color:#94a3b8; font-weight:600; display:block; margin-bottom:6px;">TASK / FEATURE SPECIFICATION:</label>
                     <div class="test-box">
@@ -1554,6 +1618,56 @@ async def dashboard():
             }}
             let currentMode = '{active_wf_mode}';
             let currentBlueprint = '';
+
+            async function loadModelSelection() {{
+                try {{
+                    const resp = await fetch('/api/models/selection');
+                    const data = await resp.json();
+                    const archSelect = document.getElementById('selectArchitect');
+                    const buildSelect = document.getElementById('selectBuilder');
+
+                    const models = data.installed_models || [];
+                    const currentArch = data.selection.architect;
+                    const currentBuild = data.selection.builder;
+
+                    archSelect.innerHTML = `<option value="auto">⚙️ Auto-Detect (${{data.resolved.architect}})</option>`;
+                    buildSelect.innerHTML = `<option value="auto">⚙️ Auto-Detect (${{data.resolved.builder}})</option>`;
+
+                    models.forEach(m => {{
+                        const optA = document.createElement('option');
+                        optA.value = m;
+                        optA.innerText = m;
+                        if (m === currentArch) optA.selected = true;
+                        archSelect.appendChild(optA);
+
+                        const optB = document.createElement('option');
+                        optB.value = m;
+                        optB.innerText = m;
+                        if (m === currentBuild) optB.selected = true;
+                        buildSelect.appendChild(optB);
+                    }});
+                }} catch(e) {{}}
+            }}
+            loadModelSelection();
+
+            async function changeModelSelection() {{
+                const arch = document.getElementById('selectArchitect').value;
+                const build = document.getElementById('selectBuilder').value;
+                const status = document.getElementById('modelSelectionStatus');
+                status.innerText = 'Updating selection...';
+                try {{
+                    await fetch('/api/models/selection', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{architect: arch, builder: build}})
+                    }});
+                    status.innerText = '✓ Models saved';
+                    status.style.color = '#10b981';
+                }} catch(e) {{
+                    status.innerText = 'Failed to save';
+                    status.style.color = '#ef4444';
+                }}
+            }}
 
             async function setWorkflowMode(mode) {{
                 await fetch('/v1/workflow/mode', {{
