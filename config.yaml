@@ -1,0 +1,44 @@
+# Model Cascading Gateway Configuration for RTX 5090 + Google Gemini
+server:
+  host: "127.0.0.1"
+  port: 8000
+
+local:
+  provider: "ollama"
+  base_url: "http://127.0.0.1:11434"
+  # Primary workhorse on RTX 5090 (32GB GDDR7)
+  primary_model: "qwen2.5-coder:32b"
+  fallback_model: "gemma4:26b"
+  # Max prompt tokens before auto-escalating to Cloud to avoid VRAM context overflow
+  max_context_tokens: 32768
+  timeout_seconds: 120
+
+cloud:
+  provider: "gemini"
+  # Google Gemini Cloud Tier
+  default_model: "gemini-2.5-flash"
+  pro_model: "gemini-2.5-pro"
+  max_context_tokens: 1048576
+
+cascading:
+  # Strategy: "hybrid" (complexity check + local 5090 execution + cloud fallback)
+  strategy: "hybrid"
+  # Base threshold: 0.0 - 1.0
+  threshold: 0.35
+  fallback_on_error: true
+  auto_detect_models: true
+
+# Dynamic Biasing Options (Local Usage Bias)
+biasing:
+  # Options:
+  #   "adaptive": Automatically increases local bias as cloud tokens get consumed towards budget
+  #   "manual": Fixed bias level set by slider or config
+  #   "local_only": Strict 100% local RTX 5090 execution (only cloud if prompt > 32k context)
+  mode: "adaptive"
+  # Manual / baseline bias factor: 0.0 (quality focus) to 1.0 (aggressive local offloading)
+  bias_factor: 0.35
+  # Cloud token budget (monthly, daily, or session limit)
+  # As consumption approaches this budget, local bias reaches 100%
+  cloud_token_budget: 500000
+  # Still allow Gemini cloud fallback if prompt physically exceeds 32k local context
+  allow_context_overflow_to_cloud: true
