@@ -44,6 +44,7 @@ flowchart TD
   * **🌐 Deep Context**: Gemini 2.5 Flash ingests massive repository files (1M context) $\rightarrow$ modular execution on local 5090.
   * **🔬 Math & Algo Proof**: Deep Chain-of-Thought formal verification for cryptography and concurrency algorithms.
 * **Native Model Context Protocol (MCP)**: Exposes a high-performance Streamable HTTP and Stdio MCP endpoint for **Google Antigravity** and **Claude Desktop**.
+* **🎛️ Dynamic Model Selection**: Select any installed local model for both the **Architect** role (`deepseek-r1:14b`, `gemma4:26b`, etc.) and the **Builder** role (`qwen2.5-coder:32b`, etc.) directly from the Web UI toolbar or Windows Tray submenus. Automatically detects newly pulled models from Ollama without restarting the gateway.
 * **Zero-Window Background Tray App**: Runs silently in the system tray, boots with Windows/Linux, and includes single-instance mutex protection.
 * **🎮 1-Click Game Mode (Instant VRAM Purge)**: Evicts loaded models from VRAM in <1s via a dedicated button on the Web UI, Windows Tray, or `POST /api/models/unload`. Frees 20–30+ GB of VRAM immediately for AAA gaming, Blender, or video editing without terminating the server. Models reload automatically on demand when coding.
 * **Live Hardware Telemetry**: In-browser control center showing real-time VRAM allocation, GPU power draw (W), temperature (°C), lifetime token savings, and an interactive prompt runner.
