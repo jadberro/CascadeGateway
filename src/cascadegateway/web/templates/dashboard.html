@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ gpu_title }} Model Cascading Control Center</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ {{ gpu_title }} Cascading Gateway <span class="badge-live">Online</span></h1>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button id="btnVramUnload" onclick="unloadModels()" style="background:#dc2626; border:none; padding:9px 16px; border-radius:6px; font-weight:700; display:flex; align-items:center; gap:6px;">🎮 Game Mode (Free VRAM)</button>
+                <button onclick="openModal()" style="background:#0284c7; border:none; padding:9px 16px; border-radius:6px; font-weight:700;">⚙️ Connect IDEs & MCP</button>
+            </div>
+        </div>
+
+        <!-- Hardware Adaptive Banner -->
+        <div class="hw-banner">
+            <div>
+                <span style="background:#0284c722; color:#38bdf8; border:1px solid #0284c7; font-size:11px; font-weight:800; padding:3px 8px; border-radius:4px; text-transform:uppercase;">Tier {{ tier['tier'] }} &bull; {{ tier['name'] }}</span>
+                <span style="font-weight:700; margin-left:10px; font-size:14px;">{{ gpu_title }} ({{ gpu['vram_total_gb'] }} GB VRAM)</span>
+                <span style="color:#94a3b8; font-size:13px; margin-left:12px;">Recommended: <b style="color:#10b981;">{{ rec_model }}</b></span>
+            </div>
+            <div id="hwAction">
+                <span style="color:#10b981; font-weight:700; font-size:13px;">✓ Active in VRAM</span>
+            </div>
+        </div>
+
+        <!-- Hardware & Performance Grid -->
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">VRAM Allocation</div>
+                <div class="card-value highlight-green">{{ gpu['vram_used_gb'] }} <span style="font-size:15px; color:#64748b;">/ {{ gpu['vram_total_gb'] }} GB</span></div>
+                <div class="bar-bg"><div class="bar-fill-green" style="width: {{ gpu['vram_percent'] }}%;"></div></div>
+                <div style="font-size:11px; color:#64748b; margin-top:6px;">Temp: <b>{{ gpu['temperature_c'] }}°C</b> &bull; Power: <b>{{ gpu['power_draw_w'] }}W</b></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Tokens Saved (Free)</div>
+                <div class="card-value highlight-green">{{ "{:,}".format(saved_toks) }}</div>
+                <div style="font-size:12px; color:#10b981; margin-top:8px;">~${{ "%.3f"|format(saved_usd) }} cloud savings</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Local Offload Ratio</div>
+                <div class="card-value highlight-blue">{{ pct }}%</div>
+                <div class="bar-bg"><div class="bar-fill-blue" style="width: {{ pct }}%;"></div></div>
+                <div style="font-size:11px; color:#64748b; margin-top:6px;">Total Requests: <b>{{ reqs['total'] }}</b></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Active Local Model</div>
+                <div class="card-value" style="font-size:18px; margin-top:4px;">{{ rec_model }}</div>
+                <div style="font-size:12px; color:#38bdf8; margin-top:8px;">Speed: ~65.4 tokens/sec</div>
+            </div>
+        </div>
+
+        <!-- Workflow Modes Selector -->
+        <div class="panel">
+            <h3>Engineering Workflow Mode <span style="font-size:13px; color:#94a3b8;">Active: <b style="color:#38bdf8;">{{ wf_info['icon'] }} {{ wf_info['name'] }}</b></span></h3>
+            <div class="btn-group">
+                <button class="{{ 'active' if active_wf_mode == 'architect' else '' }}" onclick="setWorkflowMode('architect')">🧠 Architect & Builder (Review Gate)</button>
+                <button class="{{ 'active' if active_wf_mode == 'solo' else '' }}" onclick="setWorkflowMode('solo')">🚀 Solo Sprint (Direct Coder)</button>
+                <button class="{{ 'active' if active_wf_mode == 'deep_context' else '' }}" onclick="setWorkflowMode('deep_context')">🌐 Deep Context (Gemini + 5090)</button>
+                <button class="{{ 'active' if active_wf_mode == 'algo' else '' }}" onclick="setWorkflowMode('algo')">🔬 Math & Algo Proof</button>
+            </div>
+            <div style="font-size:12px; color:#94a3b8;">{{ wf_info['description'] }}</div>
+        </div>
+
+        <!-- Interactive Runner & Review Gate -->
+        <div class="panel" id="runnerPanel">
+            <h3>
+                <span>Interactive Workspace</span>
+                <span id="pipelineStatus" style="font-size:12px; font-weight:600; color:#10b981;">Ready</span>
+            </h3>
+            
+            <!-- Model Selection Toolbar -->
+            <div style="background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; margin-bottom:14px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:12px; font-weight:700; color:#38bdf8;">🧠 Architect:</span>
+                    <select id="selectArchitect" onchange="changeModelSelection()" style="background:#131b2e; border:1px solid #334155; color:#f8fafc; padding:5px 10px; border-radius:6px; font-size:12px; outline:none; cursor:pointer;">
+                        <option value="auto">⚙️ Auto-Detect ({{ resolved_arch }})</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:12px; font-weight:700; color:#10b981;">⚡ Builder:</span>
+                    <select id="selectBuilder" onchange="changeModelSelection()" style="background:#131b2e; border:1px solid #334155; color:#f8fafc; padding:5px 10px; border-radius:6px; font-size:12px; outline:none; cursor:pointer;">
+                        <option value="auto">⚙️ Auto-Detect ({{ resolved_build }})</option>
+                    </select>
+                </div>
+                <span id="modelSelectionStatus" style="font-size:11px; color:#64748b; margin-left:auto;">Synced with Ollama</span>
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <label style="font-size:12px; color:#94a3b8; font-weight:600; display:block; margin-bottom:6px;">TASK / FEATURE SPECIFICATION:</label>
+                <div class="test-box">
+                    <input type="text" id="taskPrompt" value="Design a high-throughput concurrency rate limiter with token-bucket and burst protection.">
+                    <button class="btn-run" id="btnMainAction" onclick="executeCurrentMode()">{{ '🧠 Draft Blueprint' if active_wf_mode == 'architect' else '⚡ Run Query' }}</button>
+                </div>
+            </div>
+
+            <!-- STAGE 1: Architectural Blueprint & Review Gate -->
+            <div id="reviewGateContainer" style="display:none; background:#0b1120; border:1px solid #0284c7; border-radius:8px; padding:18px; margin-top:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <span style="font-size:14px; font-weight:700; color:#38bdf8; display:flex; align-items:center; gap:8px;">
+                        🏛️ Review Gate: Architectural Blueprint & Edge Cases
+                    </span>
+                    <span id="archMeta" style="font-size:12px; color:#94a3b8;"></span>
+                </div>
+                <pre id="blueprintBox" style="max-height:280px; overflow-y:auto; background:#050914; border:1px solid #1e293b; padding:12px; font-size:12px; color:#e2e8f0;"></pre>
+                
+                <!-- Review Gate Actions -->
+                <div style="background:#131b2e; border:1px solid #334155; border-radius:8px; padding:14px; margin-top:14px;">
+                    <div style="font-size:12px; font-weight:700; color:#f8fafc; margin-bottom:6px;">Human-in-the-Loop Feedback & Adjustments:</div>
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="reviewFeedback" placeholder="e.g. Use Redis backend instead of in-memory, support IPv6 CIDR...">
+                        <button onclick="refineBlueprint()" style="background:#1e293b; border:1px solid #38bdf8; color:#38bdf8; padding:8px 14px; border-radius:6px; font-weight:700; white-space:nowrap;">🔄 Refine Blueprint</button>
+                        <button onclick="approveAndBuild()" style="background:#10b981; color:#000; border:none; padding:8px 18px; border-radius:6px; font-weight:800; white-space:nowrap;">✅ Approve & Build Code</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STAGE 2: Code Generation Output -->
+            <div id="codeOutputContainer" style="display:none; margin-top:16px;">
+                <div style="display:flex; justify-content:space-between; font-size:12px; color:#94a3b8; margin-bottom:6px;">
+                    <span id="buildMeta"></span>
+                    <button onclick="copyCode()" style="background:transparent; border:1px solid #334155; color:#94a3b8; padding:2px 8px; border-radius:4px; font-size:11px;">📋 Copy Code</button>
+                </div>
+                <pre id="codeResult" style="max-height:350px; overflow-y:auto; background:#050914; border:1px solid #10b98144; padding:14px; color:#e2e8f0; font-size:12px;"></pre>
+            </div>
+        </div>
+
+        <!-- Dynamic Biasing Controls -->
+        <div class="panel">
+            <h3>Local Usage Biasing Options <span style="font-size: 13px; color: #94a3b8;">Effective Bias: <b>{{ eff_bias_pct }}%</b></span></h3>
+            <div class="btn-group">
+                <button class="{{ 'active' if bias['mode'] == 'adaptive' else '' }}" onclick="setMode('adaptive')">Adaptive (Auto-scales with Budget)</button>
+                <button class="{{ 'active' if bias['mode'] == 'manual' else '' }}" onclick="setMode('manual')">Manual Slider</button>
+                <button class="{{ 'active' if bias['mode'] == 'local_only' else '' }}" onclick="setMode('local_only')">Strict 100% Local</button>
+            </div>
+            <input type="range" min="0" max="1" step="0.05" value="{{ bias['bias_factor'] }}" onchange="updateSlider(this.value)">
+            <div style="font-size:12px; color:#94a3b8; margin-top:6px;">Current: <b>{{ bias['description'] }}</b></div>
+        </div>
+
+        <!-- Recent Requests Audit Log -->
+        <div class="panel">
+            <h3>Recent Request History (Audit Log)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Prompt Snippet</th>
+                        <th>Routed To</th>
+                        <th>Tokens Saved</th>
+                        <th>Latency</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in recent %}
+                    <tr>
+                        <td style="color:#94a3b8; font-size:12px;">{{ r.time }}</td>
+                        <td style="font-family:monospace; font-size:12px;">{{ r.snippet }}</td>
+                        <td><span style="background:{{ '#10b98122' if 'Local' in r.tier or '5090' in r.tier else '#38bdf822' }}; color:{{ '#10b981' if 'Local' in r.tier or '5090' in r.tier else '#38bdf8' }}; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:600;">{{ r.tier }}</span></td>
+                        <td style="color:#10b981; font-weight:600; font-size:13px;">+{{ "{:,}".format(r.tokens_saved) }}</td>
+                        <td style="color:#94a3b8; font-size:12px;">{{ r.latency_sec }}s</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" style="text-align:center; color:#64748b; padding:20px;">No requests recorded yet. Type a test prompt above!</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Connect IDEs & MCP Modal -->
+    <div id="configModal" class="modal-overlay" onclick="if(event.target === this) closeModal()">
+        <div class="modal-box">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 style="margin:0; color:#38bdf8; font-size:18px;">Connect Your AI IDEs & Agents</h3>
+                <button onclick="closeModal()" style="background:transparent; border:none; font-size:18px; cursor:pointer; color:#94a3b8;">✕</button>
+            </div>
+            <div class="btn-group" style="border-bottom:1px solid #1e293b; padding-bottom:0;">
+                <button id="tabAntigravity" class="tab-btn active" onclick="switchTab('antigravity')">Antigravity (MCP)</button>
+                <button id="tabCursor" class="tab-btn" onclick="switchTab('cursor')">Cursor</button>
+                <button id="tabContinue" class="tab-btn" onclick="switchTab('continue')">Continue.dev</button>
+                <button id="tabPython" class="tab-btn" onclick="switchTab('python')">Python SDK</button>
+            </div>
+            <div id="tabContent" style="margin-top:14px;">
+                <pre id="codeSnippet" style="max-height:260px; overflow-y:auto;"></pre>
+            </div>
+            <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+                <button onclick="copySnippet()" style="background:#10b981; color:#000; border:none; font-weight:700; padding:8px 18px; border-radius:6px;">📋 Copy Configuration</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.INITIAL_WORKFLOW_MODE = "{{ active_wf_mode }}";
+    </script>
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

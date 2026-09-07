@@ -103,7 +103,7 @@ sequenceDiagram
 ```cmd
 git clone https://github.com/jadberro/CascadeGateway.git
 cd CascadeGateway
-setup.bat
+scripts\setup.bat
 ```
 *Creates `.venv`, installs dependencies, auto-generates your desktop shortcut, and places an auto-start shortcut in your Windows Startup menu.*
 
@@ -111,8 +111,8 @@ setup.bat
 ```bash
 git clone https://github.com/jadberro/CascadeGateway.git
 cd CascadeGateway
-chmod +x setup.sh
-./setup.sh
+chmod +x scripts/setup.sh
+./scripts/setup.sh
 ```
 
 ---
@@ -189,6 +189,47 @@ response = client.chat.completions.create(
     ]
 )
 print(response.choices[0].message.content)
+```
+
+---
+
+## 📁 Repository Architecture
+
+CascadeGateway is structured as a modern, modular Python package:
+
+```text
+CascadeGateway/
+├── src/
+│   └── cascadegateway/
+│       ├── core/                  # Hardware profiler, model sizing & routing engine
+│       │   ├── config.py          # YAML config & environment loader
+│       │   ├── hardware.py        # GPU VRAM auto-profiling (5090/4090/etc.)
+│       │   └── router.py          # Biasing engine, metrics & model resolution
+│       ├── api/                   # Modular FastAPI endpoints
+│       │   ├── server.py          # App initialization & /v1/chat/completions
+│       │   ├── pipeline.py        # Architect, Review Gate & Builder endpoints
+│       │   └── models.py          # Game Mode (VRAM purge) & model selection API
+│       ├── web/                   # Clean decoupled web assets
+│       │   ├── templates/
+│       │   │   └── dashboard.html # Responsive HTML5 dashboard
+│       │   └── static/
+│       │       ├── css/dashboard.css
+│       │       └── js/dashboard.js
+│       ├── tray/                  # Windows system tray app
+│       │   └── app.py
+│       └── mcp/                   # Model Context Protocol stdio server
+│           └── server.py
+├── scripts/                       # Platform launchers & utilities
+│   ├── start_cascade.bat          # Windows batch launcher
+│   ├── start_tray.vbs             # Silent windowless tray runner
+│   ├── setup.bat / setup.sh       # One-click installers
+│   └── create_shortcuts.ps1       # Desktop & startup shortcut generator
+├── tests/                         # Automated test suite
+│   └── test_gateway.py            # End-to-end integration tests
+├── assets/                        # Icons & diagrams
+├── config.yaml                    # Gateway configuration
+├── pyproject.toml                 # Modern pip/uv packaging metadata
+└── requirements.txt
 ```
 
 ---

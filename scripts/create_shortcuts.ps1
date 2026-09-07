@@ -1,6 +1,12 @@
-# PowerShell script to create Desktop and Windows Startup shortcuts for RTX 5090 Model Cascading
+# PowerShell script to create Desktop and Windows Startup shortcuts for CascadeGateway
 
-$baseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (Test-Path (Join-Path $scriptDir "..\config.yaml")) {
+    $baseDir = (Get-Item (Join-Path $scriptDir "..")).FullName
+} else {
+    $baseDir = $scriptDir
+}
+
 $pythonw = Join-Path $baseDir ".venv\Scripts\pythonw.exe"
 $trayApp = Join-Path $baseDir "tray_app.py"
 $iconPath = Join-Path $baseDir "assets\icon.ico"
@@ -16,8 +22,10 @@ $desktopShortcut = $WshShell.CreateShortcut($desktopShortcutPath)
 $desktopShortcut.TargetPath = $pythonw
 $desktopShortcut.Arguments = "`"$trayApp`""
 $desktopShortcut.WorkingDirectory = $baseDir
-$desktopShortcut.IconLocation = "$iconPath,0"
-$desktopShortcut.Description = "RTX 5090 Model Cascading Tray App (Local + Gemini)"
+if (Test-Path $iconPath) {
+    $desktopShortcut.IconLocation = "$iconPath,0"
+}
+$desktopShortcut.Description = "CascadeGateway Tray App (Local + Gemini)"
 $desktopShortcut.Save()
 Write-Host "Created Desktop Shortcut: $desktopShortcutPath"
 
@@ -27,7 +35,9 @@ $startupShortcut = $WshShell.CreateShortcut($startupShortcutPath)
 $startupShortcut.TargetPath = $pythonw
 $startupShortcut.Arguments = "`"$trayApp`""
 $startupShortcut.WorkingDirectory = $baseDir
-$startupShortcut.IconLocation = "$iconPath,0"
-$startupShortcut.Description = "RTX 5090 Model Cascading Auto-Boot Tray Service"
+if (Test-Path $iconPath) {
+    $startupShortcut.IconLocation = "$iconPath,0"
+}
+$startupShortcut.Description = "CascadeGateway Auto-Boot Tray Service"
 $startupShortcut.Save()
 Write-Host "Created Windows Startup Shortcut: $startupShortcutPath"

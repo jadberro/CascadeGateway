@@ -1,0 +1,216 @@
+* { box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #090d16;
+    color: #f8fafc;
+    margin: 0;
+    padding: 24px;
+}
+.container {
+    max-width: 1060px;
+    margin: 0 auto;
+}
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+}
+h1 {
+    font-size: 24px;
+    margin: 0;
+    color: #38bdf8;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.badge-live {
+    background: #10b981;
+    color: #000;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 9999px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+.hw-banner {
+    background: #131b2e;
+    border: 1px solid #1e293b;
+    border-left: 4px solid #38bdf8;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+.card {
+    background: #131b2e;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 18px;
+}
+.card-title {
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+.card-value {
+    font-size: 26px;
+    font-weight: 800;
+    color: #f8fafc;
+}
+.highlight-green { color: #10b981; }
+.highlight-blue { color: #38bdf8; }
+.panel {
+    background: #131b2e;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 22px;
+    margin-bottom: 24px;
+}
+.panel h3 {
+    margin-top: 0;
+    margin-bottom: 14px;
+    font-size: 16px;
+    color: #38bdf8;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.bar-bg {
+    background: #0f172a;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 10px;
+}
+.bar-fill-green {
+    background: #10b981;
+    height: 100%;
+}
+.bar-fill-blue {
+    background: #38bdf8;
+    height: 100%;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+th {
+    text-align: left;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    border-bottom: 1px solid #1e293b;
+}
+td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #1e293b11;
+}
+.btn-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+button {
+    background: #1e293b;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+button:hover { background: #334155; }
+button.active { background: #0284c7; border-color: #38bdf8; }
+input[type=range] {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: #1e293b;
+    outline: none;
+    margin-top: 10px;
+}
+.test-box {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+input[type=text] {
+    flex: 1;
+    background: #090d16;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #f8fafc;
+    padding: 10px 14px;
+    font-size: 14px;
+    outline: none;
+}
+.btn-run {
+    background: #10b981;
+    color: #000;
+    border: none;
+    font-weight: 700;
+    padding: 10px 20px;
+    border-radius: 6px;
+}
+.btn-run:hover { background: #34d399; }
+pre {
+    background: #090d16;
+    border: 1px solid #1e293b;
+    color: #e2e8f0;
+    padding: 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12px;
+    margin-top: 12px;
+}
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+}
+.modal-box {
+    background: #131b2e;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    width: 680px;
+    max-width: 90%;
+    padding: 24px;
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
+}
+.tab-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    padding: 8px 14px;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+}
+.tab-btn.active {
+    color: #38bdf8;
+    border-bottom: 2px solid #38bdf8;
+    font-weight: 700;
+}
