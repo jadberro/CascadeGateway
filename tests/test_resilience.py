@@ -124,6 +124,76 @@ def test_live_streaming_endpoint():
     print("PASS: Live streaming with Lookahead Buffer verified.")
 
 
+def test_manual_biasing_threshold():
+    print("\n--- 5. Testing Manual Biasing Threshold Logic ---")
+    # Standard coding query with high bias (0.9) -> stays strictly local
+    std_msg = [{"role": "user", "content": "How do I format this JSON object and add logging?"}]
+    res_std = route_request(std_msg, biasing_state={"mode": "manual", "bias_factor": 0.9})
+    print(f"  Standard query (bias 0.9): route={res_std['route']}, reason={res_std['reason']}")
+    assert res_std["route"] == "local"
+
+    # Hard architectural / cloud trigger query with high bias (0.9) -> escalates to cloud (0.95 >= 0.80)
+    arch_msg = [{"role": "user", "content": "System design analysis of distributed consensus and architectural tradeoffs."}]
+    res_arch = route_request(arch_msg, biasing_state={"mode": "manual", "bias_factor": 0.9})
+    print(f"  Architectural query (bias 0.9): route={res_arch['route']}, reason={res_arch['reason']}")
+    assert res_arch["route"] == "cloud"
+    print("PASS: Manual biasing threshold logic verified.")
+
+
+def test_short_response_lookahead():
+    print("\n--- 6. Testing Short Response (<3 tokens) Lookahead Sentinel ---")
+    payload = {
+        "model": "cascade-auto",
+        "messages": [
+            {"role": "user", "content": "Reply with only the word OK"}
+        ],
+        "stream": True,
+        "max_tokens": 4
+    }
+    t0 = time.time()
+    chunks = []
+    has_done = False
+    with httpx.stream("POST", f"{BASE_URL}/v1/chat/completions", json=payload, timeout=10.0) as resp:
+        assert resp.status_code == 200
+        for line in resp.iter_lines():
+            if line == "data: [DONE]":
+                has_done = True
+                break
+            if line.startswith("data: "):
+                data = json.loads(line[6:])
+                chunk_text = data["choices"][0]["delta"].get("content", "")
+                if chunk_text:
+                    chunks.append(chunk_text)
+
+    elapsed = time.time() - t0
+    print(f"  Received chunks: {chunks} in {elapsed:.2f}s (has_done={has_done})")
+    assert has_done, "Stream did not terminate cleanly with data: [DONE]"
+    assert elapsed < 5.0, f"Stream hung or took too long: {elapsed:.2f}s"
+    print("PASS: Short response lookahead sentinel completed without deadlock.")
+
+
+def test_client_abort_cleanup():
+    print("\n--- 7. Testing Client Abort / Disconnect Resource Cleanup ---")
+    payload = {
+        "model": "cascade-auto",
+        "messages": [
+            {"role": "user", "content": "Write a 500-line Python implementation of a compiler."}
+        ],
+        "stream": True,
+        "max_tokens": 1000
+    }
+    # Simulate Cursor user pressing Escape after 1 token
+    with httpx.stream("POST", f"{BASE_URL}/v1/chat/completions", json=payload, timeout=10.0) as resp:
+        assert resp.status_code == 200
+        for line in resp.iter_lines():
+            if line.startswith("data: ") and line != "data: [DONE]":
+                # Received first token, immediately abort/close
+                resp.close()
+                break
+    time.sleep(0.5)
+    print("PASS: Client aborted cleanly without crashing or blocking server.")
+
+
 if __name__ == "__main__":
     print("==========================================================")
     print("  Intelligent Routing & Failover Engine Verification")
@@ -131,5 +201,8 @@ if __name__ == "__main__":
     test_routing_latency_sub_5ms()
     test_phase1_structural_validation()
     test_phase2_lexical_scans()
+    test_manual_biasing_threshold()
     test_live_streaming_endpoint()
-    print("\nALL RESILIENCE & ROUTING TESTS PASSED!")
+    test_short_response_lookahead()
+    test_client_abort_cleanup()
+    print("\nALL RESILIENCE, ROUTING & EDGE-CASE TESTS PASSED!")

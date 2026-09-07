@@ -176,6 +176,8 @@ async def stream_with_lookahead_failover(
                 item = await asyncio.wait_for(token_queue.get(), timeout=remaining_time)
                 if item is None:  # Model finished early (e.g. 1-2 tokens)
                     local_verified = True
+                    # CRITICAL: Re-queue the sentinel so the downstream consumer loop terminates cleanly
+                    await token_queue.put(None)
                     break
                 lookahead_buffer.append(item)
                 if len(lookahead_buffer) >= 3:
@@ -218,17 +220,28 @@ async def stream_with_lookahead_failover(
     METRICS["tokens_saved_prompt"] += prompt_toks
 
     total_tokens_emitted = len(lookahead_buffer)
-    for token_text in lookahead_buffer:
-        yield make_openai_sse_chunk(chunk_id, f"local:{local_model}", token_text)
 
-    # Stream remaining local tokens directly through
     try:
+        for token_text in lookahead_buffer:
+            yield make_openai_sse_chunk(chunk_id, f"local:{local_model}", token_text)
+
+        # Stream remaining local tokens directly through
         while True:
             item = await token_queue.get()
             if item is None:
                 break
             total_tokens_emitted += 1
             yield make_openai_sse_chunk(chunk_id, f"local:{local_model}", item)
+
+        yield make_openai_sse_chunk(chunk_id, f"local:{local_model}", "", finish_reason="stop")
+        yield "data: [DONE]\n\n"
+
+        duration = time.time() - t0
+        METRICS["tokens_saved_completion"] += total_tokens_emitted
+        record_request_history(
+            user_snippet, "Local GPU (Lookahead Verified)",
+            local_model, duration, prompt_toks + total_tokens_emitted, 0
+        )
     except Exception as stream_err:
         # Scenario C: Post-Handshake Mid-Stream Stall
         # Do not splice cloud output. Cleanly close with synthetic notice.
@@ -236,13 +249,10 @@ async def stream_with_lookahead_failover(
             chunk_id, f"local:{local_model}",
             f"\n\n[Gateway Alert: Local GPU stream stalled mid-generation ({stream_err})]"
         )
-
-    yield make_openai_sse_chunk(chunk_id, f"local:{local_model}", "", finish_reason="stop")
-    yield "data: [DONE]\n\n"
-
-    duration = time.time() - t0
-    METRICS["tokens_saved_completion"] += total_tokens_emitted
-    record_request_history(user_snippet, "Local GPU (Lookahead Verified)", local_model, duration, prompt_toks + total_tokens_emitted, 0)
-
-    producer_task.cancel()
-    await client.aclose()
+        yield make_openai_sse_chunk(chunk_id, f"local:{local_model}", "", finish_reason="stop")
+        yield "data: [DONE]\n\n"
+    finally:
+        # Guarantees background task and HTTP client are cleaned up on client disconnect
+        if not producer_task.done():
+            producer_task.cancel()
+        await client.aclose()

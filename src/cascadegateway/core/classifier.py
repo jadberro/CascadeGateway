@@ -10,10 +10,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 def validate_structure(
     messages: List[Dict[str, Any]],
-    tools: Optional[List[Dict[str, Any]]],
-    hardware_info: Dict[str, Any]
+    tools: Optional[List[Dict[str, Any]]] = None,
+    hardware_info: Optional[Dict[str, Any]] = None
 ) -> Tuple[bool, Optional[str]]:
     """Phase 1: Structural & Hardware Validation (<1ms)."""
+    if hardware_info is None:
+        from cascadegateway.core.hardware import HARDWARE_INFO
+        hardware_info = HARDWARE_INFO
+
     # Check 1: Tool and Function calling schemas
     if tools and len(tools) > 0:
         return False, "Tool/function calling requires cloud schema reliability"
@@ -93,10 +97,10 @@ CLASSIFIER = LexicalClassifier()
 
 def route_request(
     messages: List[Dict[str, Any]],
-    tools: Optional[List[Dict[str, Any]]],
-    requested_model: str,
-    hardware_info: Dict[str, Any],
-    biasing_state: Dict[str, Any]
+    tools: Optional[List[Dict[str, Any]]] = None,
+    requested_model: Optional[str] = None,
+    hardware_info: Optional[Dict[str, Any]] = None,
+    biasing_state: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Executes the full 3-phase classification pipeline in <5ms.
@@ -109,6 +113,7 @@ def route_request(
     """
     t_start = time.perf_counter()
     req_lower = (requested_model or "").lower()
+    biasing_state = biasing_state or {}
 
     # Explicit Model Override (Phase 0)
     if "gemini" in req_lower or "cloud" in req_lower:
@@ -159,9 +164,13 @@ def route_request(
         reason += " [Strict 100% Local Mode]"
     elif biasing_mode == "manual":
         bias_factor = biasing_state.get("bias_factor", 0.35)
-        # If manual bias is strong (e.g. >0.8), route local unless complexity is very high
-        if complexity_score < bias_factor:
+        # Higher bias_factor raises the complexity threshold required to escape to the cloud
+        escalation_threshold = 0.35 + (bias_factor * 0.5)
+        if complexity_score < escalation_threshold:
             route = "local"
+        else:
+            route = "cloud"
+            reason += f" [Manual Bias: Complexity {complexity_score:.2f} >= Threshold {escalation_threshold:.2f}]"
 
     total_latency_ms = (time.perf_counter() - t_start) * 1000.0
     return {
