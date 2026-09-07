@@ -38,11 +38,45 @@ flowchart TD
   * **Adaptive Mode**: Automatically increases local GPU bias as cloud token budgets get consumed.
   * **Manual Slider**: Fine-tune local preference from 0% (Quality First) to 100% (Maximum Local Offload).
   * **Strict Local**: 100% execution on local VRAM with automatic cloud overflow only if context exceeds physical limit.
+* **🧠 Multi-Task Workflow Modes & Interactive Review Gate**:
+  * **🧠 Architect & Builder**: Reasoning model drafts architecture, data contracts, and edge cases $\rightarrow$ Pauses at a **Human Review Gate** $\rightarrow$ You approve or refine $\rightarrow$ Builder synthesizes production code.
+  * **🚀 Solo Sprint**: Instant local coding via `qwen2.5-coder:32b` for quick functions, tests, and scripts.
+  * **🌐 Deep Context**: Gemini 2.5 Flash ingests massive repository files (1M context) $\rightarrow$ modular execution on local 5090.
+  * **🔬 Math & Algo Proof**: Deep Chain-of-Thought formal verification for cryptography and concurrency algorithms.
 * **Native Model Context Protocol (MCP)**: Exposes a high-performance Streamable HTTP and Stdio MCP endpoint for **Google Antigravity** and **Claude Desktop**.
 * **Zero-Window Background Tray App**: Runs silently in the system tray, boots with Windows/Linux, and includes single-instance mutex protection.
 * **🎮 1-Click Game Mode (Instant VRAM Purge)**: Evicts loaded models from VRAM in <1s via a dedicated button on the Web UI, Windows Tray, or `POST /api/models/unload`. Frees 20–30+ GB of VRAM immediately for AAA gaming, Blender, or video editing without terminating the server. Models reload automatically on demand when coding.
 * **Live Hardware Telemetry**: In-browser control center showing real-time VRAM allocation, GPU power draw (W), temperature (°C), lifetime token savings, and an interactive prompt runner.
 * **Standard OpenAI-Compatible API**: Seamless drop-in replacement (`/v1/chat/completions`) for Cursor, VSCode (Continue.dev), Aider, Claude Dev, and custom scripts.
+
+---
+
+## 🧠 The Interactive Review Gate
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as You (Developer)
+    participant Arch as 🧠 Architect (DeepSeek-R1 / Gemma 4)
+    participant Gate as 🛑 Review Gate (You in the Loop)
+    participant Build as ⚡ Builder (Qwen 2.5 Coder 32B)
+
+    Dev->>Arch: "Add rate-limiting and burst protection to API routes"
+    Note over Arch: Deep CoT: Identifies race conditions,<br/>evaluates Redis vs in-memory,<br/>drafts interface contracts.
+    Arch->>Gate: Presents Architectural Blueprint + Edge Cases
+    Note over Gate: PAUSE: No code written yet.<br/>You review the proposed interfaces & strategy.
+    
+    alt If you want adjustments
+        Dev->>Gate: "Use Redis, and add IPv6 CIDR subnet matching"
+        Gate->>Arch: Quick amendment (100 tokens)
+        Arch->>Gate: Updated spec
+    end
+
+    Dev->>Gate: "Approve & Build"
+    Gate->>Build: Sends final structured specification
+    Note over Build: Zero ambiguity.<br/>High-speed code synthesis (70 t/s).
+    Build-->>Dev: Delivers complete implementation + unit tests ($0 Cost)
+```
 
 ---
 

@@ -139,6 +139,30 @@ def is_bias_mode_active(mode: str, factor: float = None):
     return check
 
 
+def set_workflow_mode_action(mode: str):
+    def action(icon, item):
+        try:
+            req = urllib.request.Request(
+                "http://127.0.0.1:8000/v1/workflow/mode",
+                data=json.dumps({"mode": mode}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                data = json.loads(resp.read().decode())
+                mode_info = data.get("info", {})
+                icon.notify(f"Switched to {mode_info.get('icon', '')} {mode_info.get('name', mode)}", "CascadeGateway")
+        except Exception as e:
+            icon.notify(f"Failed to set mode: {e}", "CascadeGateway")
+    return action
+
+
+def is_workflow_mode_active(mode: str):
+    def check(item):
+        return cascade_proxy.WORKFLOW_STATE.get("active_mode") == mode
+    return check
+
+
 def set_primary_model(model_name: str):
     def action(icon, item):
         cascade_proxy.config.setdefault("local", {})["primary_model"] = model_name
@@ -184,6 +208,12 @@ def create_menu():
         item("Open Web Dashboard", open_dashboard, default=True),
         item("🎮 Game Mode (Free VRAM)", free_vram_action),
         Menu.SEPARATOR,
+        item("Workflow Mode", Menu(
+            item("🧠 Architect & Builder (Review Gate)", set_workflow_mode_action("architect"), checked=is_workflow_mode_active("architect"), radio=True),
+            item("🚀 Solo Sprint (Direct Fast Coder)", set_workflow_mode_action("solo"), checked=is_workflow_mode_active("solo"), radio=True),
+            item("🌐 Deep Context (Gemini + 5090)", set_workflow_mode_action("deep_context"), checked=is_workflow_mode_active("deep_context"), radio=True),
+            item("🔬 Math & Algo Proof", set_workflow_mode_action("algo"), checked=is_workflow_mode_active("algo"), radio=True),
+        )),
         item("Biasing Mode", Menu(
             item("Adaptive (Auto-scales with budget)", set_bias_mode("adaptive", 0.35), checked=is_bias_mode_active("adaptive"), radio=True),
             item("Manual: 50% Local Bias", set_bias_mode("manual", 0.50), checked=is_bias_mode_active("manual", 0.50), radio=True),

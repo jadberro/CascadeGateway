@@ -168,6 +168,83 @@ BIASING_STATE = {
     "allow_context_overflow_to_cloud": biasing_config.get("allow_context_overflow_to_cloud", True),
 }
 
+WORKFLOW_MODES = {
+    "solo": {
+        "name": "Solo Sprint",
+        "description": "Direct high-speed local code generation via Qwen 2.5 Coder 32B ($0 token cost).",
+        "icon": "🚀",
+        "has_gate": False
+    },
+    "architect": {
+        "name": "Architect & Builder",
+        "description": "Two-stage pipeline: Reasoning blueprint & edge-case discovery with Interactive Review Gate before coding.",
+        "icon": "🧠",
+        "has_gate": True
+    },
+    "deep_context": {
+        "name": "Deep Context Ingestion",
+        "description": "Cloud Gemini 1M context digests broad repository files, producing modular task specs for local execution.",
+        "icon": "🌐",
+        "has_gate": True
+    },
+    "algo": {
+        "name": "Algorithm & Math Proof",
+        "description": "Deep Chain-of-Thought formal verification for concurrency, cryptography, and complex mathematics.",
+        "icon": "🔬",
+        "has_gate": False
+    }
+}
+
+WORKFLOW_STATE = {
+    "active_mode": "architect"
+}
+
+ARCHITECT_SYSTEM_PROMPT = """You are a Principal Systems Architect and Staff Software Engineer.
+Your goal is to design a robust, maintainable, high-performance architectural blueprint for the user's request BEFORE any code is written.
+
+Structure your response into the following clear sections:
+1. 🏛️ SYSTEM ARCHITECTURE & DATA FLOW
+   - High-level design and components.
+   - Recommended tech stack / libraries and trade-off rationale.
+
+2. 📜 INTERFACE CONTRACTS & FUNCTION SIGNATURES
+   - Exact class interfaces, function signatures, types, and input/output contracts.
+
+3. ⚠️ CONCURRENCY, HAZARDS & EDGE CASES
+   - Identified pitfalls (race conditions, memory leaks, I/O bottlenecks, error handling).
+
+4. 📋 STEP-BY-STEP IMPLEMENTATION PLAN
+   - Concrete sequential steps for the Builder to execute.
+
+5. ❓ OPEN QUESTIONS / ASSUMPTIONS
+   - Any design assumptions you made that the user might want to adjust.
+
+IMPORTANT: Do NOT write the full implementation code yet. Provide only the architectural blueprint, data contracts, and signatures for human review."""
+
+BUILDER_SYSTEM_PROMPT = """You are a Senior Systems Implementation Engineer.
+Your task is to write complete, production-grade, fully working code adhering STRICTLY to the approved Architectural Blueprint and any user adjustments.
+
+Guidelines:
+- Implement all classes, functions, and interfaces specified in the blueprint.
+- Handle all edge cases and concurrency hazards noted.
+- Write clean, type-hinted code with comprehensive error handling.
+- Include thorough unit tests demonstrating correctness.
+- Do NOT use ellipses (...) or placeholders. Deliver complete, copy-pasteable code."""
+
+
+def select_architect_model(installed_models: List[str]) -> str:
+    for m in installed_models:
+        if "deepseek-r1" in m.lower():
+            return m
+    for m in installed_models:
+        if "gemma" in m.lower():
+            return m
+    for m in installed_models:
+        if "qwen2.5:32b" in m.lower():
+            return m
+    return HARDWARE_INFO["tier"]["recommended_coding"]
+
+
 app = FastAPI(
     title="RTX 5090 Model Cascading Gateway",
     description="Intelligent routing and token biasing between local RTX 5090 and Google Gemini",
@@ -683,6 +760,177 @@ async def unload_models_endpoint(req: Optional[UnloadModelRequest] = None):
     }
 
 
+class WorkflowModeRequest(BaseModel):
+    mode: str
+
+
+class PipelineArchitectRequest(BaseModel):
+    prompt: str
+    context: Optional[str] = None
+    architect_model: Optional[str] = None
+
+
+class PipelineRefineRequest(BaseModel):
+    prompt: str
+    current_blueprint: str
+    feedback: str
+    architect_model: Optional[str] = None
+
+
+class PipelineBuildRequest(BaseModel):
+    prompt: str
+    approved_blueprint: str
+    feedback: Optional[str] = None
+    builder_model: Optional[str] = None
+
+
+@app.get("/v1/workflow/modes")
+async def get_workflow_modes():
+    return {
+        "active_mode": WORKFLOW_STATE["active_mode"],
+        "modes": WORKFLOW_MODES
+    }
+
+
+@app.post("/v1/workflow/mode")
+async def set_workflow_mode(req: WorkflowModeRequest):
+    if req.mode in WORKFLOW_MODES:
+        WORKFLOW_STATE["active_mode"] = req.mode
+        return {"success": True, "active_mode": req.mode, "info": WORKFLOW_MODES[req.mode]}
+    raise HTTPException(status_code=400, detail=f"Unknown workflow mode: {req.mode}. Available: {list(WORKFLOW_MODES.keys())}")
+
+
+@app.post("/api/pipeline/architect")
+async def pipeline_architect_endpoint(req: PipelineArchitectRequest):
+    """Stage 1: Prompts the Architect model to draft the blueprint for human review."""
+    t0 = time.time()
+    ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+    installed = await get_available_ollama_models(ollama_url)
+    model = req.architect_model or select_architect_model(installed)
+
+    user_content = f"TASK SPECIFICATION:\n{req.prompt}"
+    if req.context:
+        user_content += f"\n\nEXISTING CODEBASE / CONTEXT:\n{req.context}"
+
+    messages = [
+        {"role": "system", "content": ARCHITECT_SYSTEM_PROMPT},
+        {"role": "user", "content": user_content}
+    ]
+
+    try:
+        resp = await call_ollama_non_streaming(ollama_url, model, messages, temperature=0.3)
+        duration = round(time.time() - t0, 2)
+        blueprint_text = resp["choices"][0]["message"]["content"]
+        tokens = resp["usage"]["prompt_tokens"] + resp["usage"]["completion_tokens"]
+
+        METRICS["local_5090_requests"] += 1
+        METRICS["tokens_saved_prompt"] += resp["usage"]["prompt_tokens"]
+        METRICS["tokens_saved_completion"] += resp["usage"]["completion_tokens"]
+        record_request_history(f"[Architect] {req.prompt}", "Local Architect", model, duration, tokens, 0)
+
+        return {
+            "success": True,
+            "blueprint": blueprint_text,
+            "architect_model": model,
+            "latency_sec": duration,
+            "tokens_saved": tokens
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Architect phase failed: {e}")
+
+
+@app.post("/api/pipeline/refine")
+async def pipeline_refine_endpoint(req: PipelineRefineRequest):
+    """Refines the architectural blueprint with user feedback at the Review Gate."""
+    t0 = time.time()
+    ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+    installed = await get_available_ollama_models(ollama_url)
+    model = req.architect_model or select_architect_model(installed)
+
+    refine_prompt = f"""ORIGINAL TASK:
+{req.prompt}
+
+CURRENT BLUEPRINT:
+{req.current_blueprint}
+
+USER FEEDBACK / ADJUSTMENTS AT REVIEW GATE:
+{req.feedback}
+
+Please update the Architectural Blueprint incorporating the user's adjustments. Maintain the structured sections (Architecture, Contracts, Hazards, Plan)."""
+
+    messages = [
+        {"role": "system", "content": ARCHITECT_SYSTEM_PROMPT},
+        {"role": "user", "content": refine_prompt}
+    ]
+
+    try:
+        resp = await call_ollama_non_streaming(ollama_url, model, messages, temperature=0.3)
+        duration = round(time.time() - t0, 2)
+        updated_text = resp["choices"][0]["message"]["content"]
+        tokens = resp["usage"]["prompt_tokens"] + resp["usage"]["completion_tokens"]
+
+        METRICS["local_5090_requests"] += 1
+        METRICS["tokens_saved_prompt"] += resp["usage"]["prompt_tokens"]
+        METRICS["tokens_saved_completion"] += resp["usage"]["completion_tokens"]
+        record_request_history(f"[Refine Arch] {req.prompt}", "Local Architect", model, duration, tokens, 0)
+
+        return {
+            "success": True,
+            "blueprint": updated_text,
+            "architect_model": model,
+            "latency_sec": duration,
+            "tokens_saved": tokens
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Refine phase failed: {e}")
+
+
+@app.post("/api/pipeline/build")
+async def pipeline_build_endpoint(req: PipelineBuildRequest):
+    """Stage 2: Takes the approved architectural blueprint and generates production code via Builder."""
+    t0 = time.time()
+    ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+    installed = await get_available_ollama_models(ollama_url)
+    model = req.builder_model or select_best_local_model(installed)
+
+    build_prompt = f"""TASK:
+{req.prompt}
+
+APPROVED ARCHITECTURAL BLUEPRINT & DATA CONTRACTS:
+{req.approved_blueprint}
+"""
+    if req.feedback:
+        build_prompt += f"\nADDITIONAL CONSTRAINTS / ADJUSTMENTS:\n{req.feedback}\n"
+
+    build_prompt += "\nPlease implement the full, production-ready solution with complete code and unit tests."
+
+    messages = [
+        {"role": "system", "content": BUILDER_SYSTEM_PROMPT},
+        {"role": "user", "content": build_prompt}
+    ]
+
+    try:
+        resp = await call_ollama_non_streaming(ollama_url, model, messages, temperature=0.2)
+        duration = round(time.time() - t0, 2)
+        code_text = resp["choices"][0]["message"]["content"]
+        tokens = resp["usage"]["prompt_tokens"] + resp["usage"]["completion_tokens"]
+
+        METRICS["local_5090_requests"] += 1
+        METRICS["tokens_saved_prompt"] += resp["usage"]["prompt_tokens"]
+        METRICS["tokens_saved_completion"] += resp["usage"]["completion_tokens"]
+        record_request_history(f"[Builder] {req.prompt}", "Local Builder", model, duration, tokens, 0)
+
+        return {
+            "success": True,
+            "code": code_text,
+            "builder_model": model,
+            "latency_sec": duration,
+            "tokens_saved": tokens
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Builder phase failed: {e}")
+
+
 @app.get("/api/config-templates")
 async def get_config_templates():
     host = config.get("server", {}).get("host", "127.0.0.1")
@@ -815,6 +1063,31 @@ MCP_TOOL_DEFS = [
             "type": "object",
             "properties": {}
         }
+    },
+    {
+        "name": "architect_proposal",
+        "description": "Generate a system architectural blueprint, component design, interface signatures, and edge-case hazards for human review before writing code.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "The feature or task specification to architect."},
+                "context": {"type": "string", "description": "Optional context or existing file code.", "default": ""}
+            },
+            "required": ["task"]
+        }
+    },
+    {
+        "name": "run_pipeline_builder",
+        "description": "Synthesize complete, production-ready code on the local RTX 5090 based on an approved architectural blueprint and constraints.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "The original task."},
+                "approved_blueprint": {"type": "string", "description": "The approved architectural blueprint."},
+                "constraints": {"type": "string", "description": "Optional user adjustments/constraints.", "default": ""}
+            },
+            "required": ["task", "approved_blueprint"]
+        }
     }
 ]
 
@@ -850,6 +1123,16 @@ async def execute_mcp_tool(name: str, args: dict) -> str:
     elif name == "get_cascade_metrics":
         m = await get_metrics()
         return json.dumps(m, indent=2)
+
+    elif name == "architect_proposal":
+        pipe_req = PipelineArchitectRequest(prompt=args.get("task", ""), context=args.get("context", ""))
+        res = await pipeline_architect_endpoint(pipe_req)
+        return f"### Architectural Blueprint (Model: {res['architect_model']} | Latency: {res['latency_sec']}s)\n\n{res['blueprint']}\n\n---\n*Status: Awaiting Human Review Gate approval before code synthesis.*"
+
+    elif name == "run_pipeline_builder":
+        pipe_req = PipelineBuildRequest(prompt=args.get("task", ""), approved_blueprint=args.get("approved_blueprint", ""), feedback=args.get("constraints", ""))
+        res = await pipeline_build_endpoint(pipe_req)
+        return f"### Generated Implementation (Builder: {res['builder_model']} | Latency: {res['latency_sec']}s)\n\n{res['code']}"
 
     return f"Unknown tool: {name}"
 
@@ -954,6 +1237,8 @@ async def dashboard():
     tier = HARDWARE_INFO["tier"]
     gpu_title = HARDWARE_INFO["gpu_name"]
     rec_model = tier["recommended_coding"]
+    active_wf_mode = WORKFLOW_STATE["active_mode"]
+    wf_info = WORKFLOW_MODES.get(active_wf_mode, WORKFLOW_MODES["architect"])
 
     # Build recent requests table rows
     rows_html = ""
@@ -1066,19 +1351,61 @@ async def dashboard():
                 </div>
             </div>
 
-            <!-- Interactive In-Browser Test Runner -->
+            <!-- Workflow Modes Selector -->
             <div class="panel">
-                <h3>Live Interactive Test Runner</h3>
-                <p style="color:#94a3b8; font-size:13px; margin:0 0 10px 0;">Test prompt routing and observe token savings in real time:</p>
-                <div class="test-box">
-                    <input type="text" id="testPrompt" value="Write a Python function to check if a number is prime.">
-                    <button class="btn-run" onclick="runTest()">Run Query</button>
+                <h3>Engineering Workflow Mode <span style="font-size:13px; color:#94a3b8;">Active: <b style="color:#38bdf8;">{wf_info['icon']} {wf_info['name']}</b></span></h3>
+                <div class="btn-group">
+                    <button class="{'active' if active_wf_mode == 'architect' else ''}" onclick="setWorkflowMode('architect')">🧠 Architect & Builder (Review Gate)</button>
+                    <button class="{'active' if active_wf_mode == 'solo' else ''}" onclick="setWorkflowMode('solo')">🚀 Solo Sprint (Direct Coder)</button>
+                    <button class="{'active' if active_wf_mode == 'deep_context' else ''}" onclick="setWorkflowMode('deep_context')">🌐 Deep Context (Gemini + 5090)</button>
+                    <button class="{'active' if active_wf_mode == 'algo' else ''}" onclick="setWorkflowMode('algo')">🔬 Math & Algo Proof</button>
                 </div>
-                <div id="testOutput" style="display:none; margin-top:12px;">
-                    <div style="display:flex; justify-content:space-between; font-size:12px; color:#94a3b8; margin-bottom:4px;">
-                        <span id="testMeta"></span>
+                <div style="font-size:12px; color:#94a3b8;">{wf_info['description']}</div>
+            </div>
+
+            <!-- Interactive Runner & Review Gate -->
+            <div class="panel" id="runnerPanel">
+                <h3>
+                    <span>Interactive Workspace</span>
+                    <span id="pipelineStatus" style="font-size:12px; font-weight:600; color:#10b981;">Ready</span>
+                </h3>
+                
+                <div style="margin-bottom:12px;">
+                    <label style="font-size:12px; color:#94a3b8; font-weight:600; display:block; margin-bottom:6px;">TASK / FEATURE SPECIFICATION:</label>
+                    <div class="test-box">
+                        <input type="text" id="taskPrompt" value="Design a high-throughput concurrency rate limiter with token-bucket and burst protection.">
+                        <button class="btn-run" id="btnMainAction" onclick="executeCurrentMode()">{ '🧠 Draft Blueprint' if active_wf_mode == 'architect' else '⚡ Run Query' }</button>
                     </div>
-                    <pre id="testResult" style="max-height:220px; overflow-y:auto;"></pre>
+                </div>
+
+                <!-- STAGE 1: Architectural Blueprint & Review Gate (Visible in Architect mode after drafting) -->
+                <div id="reviewGateContainer" style="display:none; background:#0b1120; border:1px solid #0284c7; border-radius:8px; padding:18px; margin-top:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <span style="font-size:14px; font-weight:700; color:#38bdf8; display:flex; align-items:center; gap:8px;">
+                            🏛️ Review Gate: Architectural Blueprint & Edge Cases
+                        </span>
+                        <span id="archMeta" style="font-size:12px; color:#94a3b8;"></span>
+                    </div>
+                    <pre id="blueprintBox" style="max-height:280px; overflow-y:auto; background:#050914; border:1px solid #1e293b; padding:12px; font-size:12px; color:#e2e8f0;"></pre>
+                    
+                    <!-- Review Gate Actions -->
+                    <div style="background:#131b2e; border:1px solid #334155; border-radius:8px; padding:14px; margin-top:14px;">
+                        <div style="font-size:12px; font-weight:700; color:#f8fafc; margin-bottom:6px;">Human-in-the-Loop Feedback & Adjustments:</div>
+                        <div style="display:flex; gap:10px;">
+                            <input type="text" id="reviewFeedback" placeholder="e.g. Use Redis backend instead of in-memory, support IPv6 CIDR...">
+                            <button onclick="refineBlueprint()" style="background:#1e293b; border:1px solid #38bdf8; color:#38bdf8; padding:8px 14px; border-radius:6px; font-weight:700; white-space:nowrap;">🔄 Refine Blueprint</button>
+                            <button onclick="approveAndBuild()" style="background:#10b981; color:#000; border:none; padding:8px 18px; border-radius:6px; font-weight:800; white-space:nowrap;">✅ Approve & Build Code</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STAGE 2: Code Generation Output -->
+                <div id="codeOutputContainer" style="display:none; margin-top:16px;">
+                    <div style="display:flex; justify-content:space-between; font-size:12px; color:#94a3b8; margin-bottom:6px;">
+                        <span id="buildMeta"></span>
+                        <button onclick="copyCode()" style="background:transparent; border:1px solid #334155; color:#94a3b8; padding:2px 8px; border-radius:4px; font-size:11px;">📋 Copy Code</button>
+                    </div>
+                    <pre id="codeResult" style="max-height:350px; overflow-y:auto; background:#050914; border:1px solid #10b98144; padding:14px; color:#e2e8f0; font-size:12px;"></pre>
                 </div>
             </div>
 
@@ -1225,14 +1552,160 @@ async def dashboard():
                 }});
                 location.reload();
             }}
-            async function runTest() {{
-                const prompt = document.getElementById('testPrompt').value;
-                const output = document.getElementById('testOutput');
-                const meta = document.getElementById('testMeta');
-                const result = document.getElementById('testResult');
-                output.style.display = 'block';
-                meta.innerText = 'Routing and generating on local GPU...';
-                result.innerText = 'Processing...';
+            let currentMode = '{active_wf_mode}';
+            let currentBlueprint = '';
+
+            async function setWorkflowMode(mode) {{
+                await fetch('/v1/workflow/mode', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{mode: mode}})
+                }});
+                location.reload();
+            }}
+
+            async function executeCurrentMode() {{
+                const prompt = document.getElementById('taskPrompt').value;
+                if (!prompt) return;
+
+                if (currentMode === 'architect') {{
+                    await draftArchitecture(prompt);
+                }} else {{
+                    await runSoloQuery(prompt);
+                }}
+            }}
+
+            async function draftArchitecture(prompt) {{
+                const status = document.getElementById('pipelineStatus');
+                const gate = document.getElementById('reviewGateContainer');
+                const box = document.getElementById('blueprintBox');
+                const meta = document.getElementById('archMeta');
+                const btn = document.getElementById('btnMainAction');
+
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Thinking & Modeling...';
+                status.innerText = 'Architect reasoning in progress...';
+                status.style.color = '#38bdf8';
+
+                try {{
+                    const res = await fetch('/api/pipeline/architect', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{prompt: prompt}})
+                    }});
+                    const data = await res.json();
+                    if (data.success) {{
+                        currentBlueprint = data.blueprint;
+                        box.innerText = data.blueprint;
+                        meta.innerText = `Model: ${{data.architect_model}} | Latency: ${{data.latency_sec}}s | Saved: ${{data.tokens_saved}} tokens`;
+                        gate.style.display = 'block';
+                        status.innerText = '🛑 Awaiting Human Review Gate Approval';
+                        status.style.color = '#f59e0b';
+                        btn.disabled = false;
+                        btn.innerHTML = '🧠 Draft Blueprint';
+                    }} else {{
+                        alert('Architect failed: ' + (data.detail || 'Unknown error'));
+                        btn.disabled = false;
+                        btn.innerHTML = '🧠 Draft Blueprint';
+                    }}
+                }} catch(e) {{
+                    alert('Error calling Architect: ' + e);
+                    btn.disabled = false;
+                    btn.innerHTML = '🧠 Draft Blueprint';
+                }}
+            }}
+
+            async function refineBlueprint() {{
+                const prompt = document.getElementById('taskPrompt').value;
+                const feedback = document.getElementById('reviewFeedback').value;
+                if (!feedback) {{ alert('Please enter feedback to refine the blueprint.'); return; }}
+
+                const box = document.getElementById('blueprintBox');
+                const meta = document.getElementById('archMeta');
+                const status = document.getElementById('pipelineStatus');
+
+                status.innerText = 'Refining blueprint with your feedback...';
+                status.style.color = '#38bdf8';
+                box.innerText = 'Updating architecture...';
+
+                try {{
+                    const res = await fetch('/api/pipeline/refine', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{
+                            prompt: prompt,
+                            current_blueprint: currentBlueprint,
+                            feedback: feedback
+                        }})
+                    }});
+                    const data = await res.json();
+                    if (data.success) {{
+                        currentBlueprint = data.blueprint;
+                        box.innerText = data.blueprint;
+                        meta.innerText = `Refined by ${{data.architect_model}} | Latency: ${{data.latency_sec}}s`;
+                        status.innerText = '🛑 Updated Blueprint Ready for Review';
+                        status.style.color = '#f59e0b';
+                        document.getElementById('reviewFeedback').value = '';
+                    }} else {{
+                        alert('Refinement failed: ' + data.detail);
+                    }}
+                }} catch(e) {{
+                    alert('Error: ' + e);
+                }}
+            }}
+
+            async function approveAndBuild() {{
+                const prompt = document.getElementById('taskPrompt').value;
+                const feedback = document.getElementById('reviewFeedback').value;
+                const status = document.getElementById('pipelineStatus');
+                const outContainer = document.getElementById('codeOutputContainer');
+                const codeResult = document.getElementById('codeResult');
+                const buildMeta = document.getElementById('buildMeta');
+
+                status.innerText = '⚡ Builder synthesizing code on local RTX 5090...';
+                status.style.color = '#10b981';
+                outContainer.style.display = 'block';
+                codeResult.innerText = 'Writing implementation adhering to approved blueprint...';
+
+                try {{
+                    const res = await fetch('/api/pipeline/build', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{
+                            prompt: prompt,
+                            approved_blueprint: currentBlueprint,
+                            feedback: feedback
+                        }})
+                    }});
+                    const data = await res.json();
+                    if (data.success) {{
+                        codeResult.innerText = data.code;
+                        buildMeta.innerText = `Synthesized by ${{data.builder_model}} in ${{data.latency_sec}}s (+${{data.tokens_saved}} tokens saved)`;
+                        status.innerText = '✅ Implementation Complete!';
+                        status.style.color = '#10b981';
+                    }} else {{
+                        alert('Build failed: ' + data.detail);
+                    }}
+                }} catch(e) {{
+                    alert('Error: ' + e);
+                }}
+            }}
+
+            function copyCode() {{
+                const code = document.getElementById('codeResult').innerText;
+                navigator.clipboard.writeText(code);
+                alert('Code copied to clipboard!');
+            }}
+
+            async function runSoloQuery(prompt) {{
+                const outContainer = document.getElementById('codeOutputContainer');
+                const codeResult = document.getElementById('codeResult');
+                const buildMeta = document.getElementById('buildMeta');
+                const status = document.getElementById('pipelineStatus');
+
+                status.innerText = 'Routing and executing...';
+                outContainer.style.display = 'block';
+                codeResult.innerText = 'Processing...';
 
                 const t0 = performance.now();
                 const resp = await fetch('/v1/chat/completions', {{
@@ -1246,8 +1719,9 @@ async def dashboard():
                 const data = await resp.json();
                 const dur = ((performance.now() - t0)/1000).toFixed(2);
                 const info = data._routing_info || {{}};
-                meta.innerText = `Routed to: ${{info.tier || 'Local'}} | Latency: ${{dur}}s | Tokens Saved: ${{info.tokens_saved || 0}}`;
-                result.innerText = data.choices[0].message.content;
+                buildMeta.innerText = `Routed to: ${{info.tier || 'Local'}} | Latency: ${{dur}}s | Tokens Saved: ${{info.tokens_saved || 0}}`;
+                codeResult.innerText = data.choices[0].message.content;
+                status.innerText = 'Complete';
             }}
         </script>
     </body>
