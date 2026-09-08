@@ -21,7 +21,7 @@ from cascadegateway.core.router import (
     save_persistent_metrics
 )
 
-TTFT_DEADLINE_LOADED = 8.0    # 8.0s for warm models in VRAM (allows CoT/reasoning models like DeepSeek-R1/Gemma to formulate initial tokens)
+TTFT_DEADLINE_LOADED = 15.0   # 15.0s for warm 32B/reasoning models in VRAM (allows deep prompt evaluation & CoT formulation)
 TTFT_DEADLINE_COLD = 60.0     # 60.0s grace window for NVMe-to-VRAM model loading when waking up from pause
 
 

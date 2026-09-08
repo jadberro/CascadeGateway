@@ -100,7 +100,8 @@ def launch_hud_action(icon, item):
         import subprocess
         venv_pythonw = BASE_DIR / ".venv" / "Scripts" / "pythonw.exe"
         py_bin = str(venv_pythonw) if venv_pythonw.exists() else sys.executable
-        subprocess.Popen([py_bin, "-m", "cascadegateway.hud.overlay"], cwd=str(BASE_DIR))
+        flags = 0x08000000 if os.name == "nt" else 0
+        subprocess.Popen([py_bin, "-m", "cascadegateway.hud.overlay"], cwd=str(BASE_DIR), creationflags=flags)
     except Exception as e:
         icon.notify(f"Failed to launch HUD: {e}", "CascadeGateway")
 

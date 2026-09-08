@@ -4,6 +4,14 @@ Engineered with native tkinter for zero-dependency, ultra-lightweight execution 
 """
 
 import sys
+import os
+from pathlib import Path
+
+# Ensure src directory is in sys.path regardless of execution method
+SRC_DIR = Path(__file__).resolve().parent.parent.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 import time
 import json
 import queue

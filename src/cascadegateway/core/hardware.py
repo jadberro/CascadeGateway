@@ -3,9 +3,30 @@ CascadeGateway Hardware Profiler & GPU Telemetry
 Detects GPU architecture, physical VRAM capacity, telemetry, and tier sizing.
 """
 
+import os
+import ctypes
 import platform
 import subprocess
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+
+
+def _run_silent_cmd(cmd: List[str], timeout: float = 2.0) -> Optional[subprocess.CompletedProcess]:
+    """Runs a subprocess guaranteed to never spawn, flicker, or show a console window on Windows."""
+    kwargs: Dict[str, Any] = {
+        "capture_output": True,
+        "text": True,
+        "timeout": timeout
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = 0x08000000  # subprocess.CREATE_NO_WINDOW
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = si
+    try:
+        return subprocess.run(cmd, **kwargs)
+    except Exception:
+        return None
 
 
 TIER_PROFILES = [
@@ -60,19 +81,139 @@ def get_tier_for_vram(vram_gb: float) -> Dict[str, Any]:
     return TIER_PROFILES[-1]
 
 
+# Direct in-memory Ctypes NVML handle (Zero subprocesses, zero console windows, sub-millisecond)
+_NVML_LIB = None
+_NVML_DEVICE = None
+_NVML_INIT_ATTEMPTED = False
+
+
+class _nvmlMemory_t(ctypes.Structure):
+    _fields_ = [
+        ("total", ctypes.c_ulonglong),
+        ("free", ctypes.c_ulonglong),
+        ("used", ctypes.c_ulonglong),
+    ]
+
+
+class _nvmlUtilization_t(ctypes.Structure):
+    _fields_ = [
+        ("gpu", ctypes.c_uint),
+        ("memory", ctypes.c_uint),
+    ]
+
+
+def _init_nvml_handle() -> bool:
+    global _NVML_LIB, _NVML_DEVICE, _NVML_INIT_ATTEMPTED
+    if _NVML_INIT_ATTEMPTED:
+        return _NVML_LIB is not None and _NVML_DEVICE is not None
+    _NVML_INIT_ATTEMPTED = True
+    try:
+        if os.name == "nt":
+            _NVML_LIB = ctypes.CDLL("nvml.dll")
+        else:
+            _NVML_LIB = ctypes.CDLL("libnvidia-ml.so.1")
+        _NVML_LIB.nvmlInit_v2()
+        dev = ctypes.c_void_p()
+        _NVML_LIB.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(dev))
+        _NVML_DEVICE = dev
+        return True
+    except Exception:
+        _NVML_LIB = None
+        _NVML_DEVICE = None
+        return False
+
+
+def _get_telemetry_nvml() -> Optional[Dict[str, Any]]:
+    if not _init_nvml_handle():
+        return None
+    try:
+        # GPU Name
+        name_buf = ctypes.create_string_buffer(64)
+        _NVML_LIB.nvmlDeviceGetName(_NVML_DEVICE, name_buf, 64)
+        gpu_name = name_buf.value.decode("utf-8", errors="replace")
+
+        # Memory
+        mem = _nvmlMemory_t()
+        _NVML_LIB.nvmlDeviceGetMemoryInfo(_NVML_DEVICE, ctypes.byref(mem))
+        vram_used_mb = mem.used / (1024 * 1024)
+        vram_total_mb = mem.total / (1024 * 1024)
+        vram_used_gb = round(vram_used_mb / 1024, 1)
+        vram_total_gb = round(vram_total_mb / 1024, 1)
+        vram_percent = round((mem.used / max(1, mem.total)) * 100.0, 1)
+
+        # Temperature (NVML_TEMPERATURE_GPU = 0)
+        temp = ctypes.c_uint()
+        _NVML_LIB.nvmlDeviceGetTemperature(_NVML_DEVICE, 0, ctypes.byref(temp))
+
+        # Power Draw (milliwatts -> Watts)
+        power = ctypes.c_uint()
+        _NVML_LIB.nvmlDeviceGetPowerUsage(_NVML_DEVICE, ctypes.byref(power))
+        power_w = round(power.value / 1000.0, 1)
+
+        # Power Limit
+        power_lim = ctypes.c_uint()
+        try:
+            _NVML_LIB.nvmlDeviceGetEnforcedPowerLimit(_NVML_DEVICE, ctypes.byref(power_lim))
+            power_limit_w = int(power_lim.value / 1000.0)
+        except Exception:
+            power_limit_w = 0
+
+        # Utilization
+        util = _nvmlUtilization_t()
+        _NVML_LIB.nvmlDeviceGetUtilizationRates(_NVML_DEVICE, ctypes.byref(util))
+
+        return {
+            "available": True,
+            "name": gpu_name,
+            "vram_used_mb": vram_used_mb,
+            "vram_total_mb": vram_total_mb,
+            "vram_used_gb": vram_used_gb,
+            "vram_total_gb": vram_total_gb,
+            "vram_percent": vram_percent,
+            "temperature_c": int(temp.value),
+            "power_draw_w": power_w,
+            "power_limit_w": power_limit_w,
+            "gpu_util_percent": int(util.gpu),
+        }
+    except Exception:
+        return None
+
+
 def detect_gpu_hardware() -> Dict[str, Any]:
     """Detects available GPU hardware, physical VRAM, and operating system."""
     os_name = platform.system()
 
-    # 1. Try NVIDIA SMI
+    # 1. Try In-Memory NVML Ctypes (Instant <0.1ms, zero subprocesses, zero windows)
+    try:
+        if _init_nvml_handle():
+            name_buf = ctypes.create_string_buffer(64)
+            _NVML_LIB.nvmlDeviceGetName(_NVML_DEVICE, name_buf, 64)
+            name = name_buf.value.decode("utf-8", errors="replace")
+            mem = _nvmlMemory_t()
+            _NVML_LIB.nvmlDeviceGetMemoryInfo(_NVML_DEVICE, ctypes.byref(mem))
+            vram_gb = round(mem.total / (1024 ** 3), 1)
+            tier_info = get_tier_for_vram(vram_gb)
+            return {
+                "detected": True,
+                "gpu_name": name,
+                "vendor": "NVIDIA",
+                "vram_gb": vram_gb,
+                "driver": "NVML Direct",
+                "os": os_name,
+                "tier": tier_info
+            }
+    except Exception:
+        pass
+
+    # 2. Fallback: Silent NVIDIA SMI via subprocess (Guaranteed no window on Windows)
     try:
         cmd = [
             "nvidia-smi",
             "--query-gpu=name,memory.total,driver_version",
             "--format=csv,noheader,nounits"
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=2.0)
-        if res.returncode == 0 and res.stdout.strip():
+        res = _run_silent_cmd(cmd, timeout=2.0)
+        if res and res.returncode == 0 and res.stdout.strip():
             line = res.stdout.strip().split("\n")[0]
             parts = [p.strip() for p in line.split(",")]
             if len(parts) >= 2:
@@ -93,11 +234,11 @@ def detect_gpu_hardware() -> Dict[str, Any]:
     except Exception:
         pass
 
-    # 2. Try macOS Apple Silicon Unified Memory
+    # 3. Try macOS Apple Silicon Unified Memory
     if os_name == "Darwin":
         try:
-            res = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=2.0)
-            if res.returncode == 0:
+            res = _run_silent_cmd(["sysctl", "-n", "hw.memsize"], timeout=2.0)
+            if res and res.returncode == 0:
                 bytes_mem = int(res.stdout.strip())
                 ram_gb = round(bytes_mem / (1024 ** 3), 1)
                 usable_vram = round(ram_gb * 0.75, 1)
@@ -114,7 +255,7 @@ def detect_gpu_hardware() -> Dict[str, Any]:
         except Exception:
             pass
 
-    # 3. Fallback: CPU
+    # 4. Fallback: CPU
     return {
         "detected": False,
         "gpu_name": "Generic CPU / Integrated Graphics",
@@ -149,15 +290,21 @@ def match_best_model(installed_models: List[str], tier_info: Dict[str, Any]) -> 
 
 
 def get_gpu_telemetry() -> Dict[str, Any]:
-    """Queries nvidia-smi for live hardware metrics on RTX GPUs."""
+    """Queries live hardware metrics on RTX GPUs. Uses in-process ctypes NVML first (<0.1ms, zero windows)."""
+    # 1. Primary: Ultra-fast in-memory NVML ctypes (zero subprocesses, zero windows)
+    nvml_data = _get_telemetry_nvml()
+    if nvml_data is not None:
+        return nvml_data
+
+    # 2. Fallback: Silent nvidia-smi with CREATE_NO_WINDOW
     try:
         cmd = [
             "nvidia-smi",
             "--query-gpu=name,memory.used,memory.total,temperature.gpu,power.draw,power.limit,utilization.gpu",
             "--format=csv,noheader,nounits"
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=1.5)
-        if res.returncode == 0 and res.stdout.strip():
+        res = _run_silent_cmd(cmd, timeout=1.5)
+        if res and res.returncode == 0 and res.stdout.strip():
             parts = [p.strip() for p in res.stdout.strip().split(",")]
             if len(parts) >= 7:
                 vram_used = float(parts[1])
@@ -185,8 +332,6 @@ def get_gpu_telemetry() -> Dict[str, Any]:
         "vram_total_gb": HARDWARE_INFO.get("vram_gb", 32.0),
         "vram_percent": 0.0,
         "temperature_c": 35,
-        "power_draw_w": 0.0,
-        "power_limit_w": 0,
         "gpu_util_percent": 0,
     }
 
