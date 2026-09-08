@@ -4,8 +4,15 @@ Engineered with native tkinter for zero-dependency, ultra-lightweight execution 
 """
 
 import sys
+import io
 import os
 from pathlib import Path
+
+# Fix pythonw.exe windowless execution: sys.stdout and sys.stderr are None
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
 
 # Ensure src directory is in sys.path regardless of execution method
 SRC_DIR = Path(__file__).resolve().parent.parent.parent
