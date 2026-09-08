@@ -13,35 +13,25 @@ It automatically detects your GPU hardware and physical VRAM on startup—whethe
 
 ```mermaid
 flowchart TD
-    Client[AI Client: Cursor / Continue / Antigravity / Aider] -->|HTTP /v1/chat/completions| Gateway[CascadeGateway Proxy :8000]
+    Client[AI Client: Cursor / Continue / Antigravity] --> Gateway[CascadeGateway :8000/v1]
     
-    subgraph RoutingEngine ["⚡ 3-Phase Sub-5ms Routing Engine (Avg 0.004ms)"]
-        Phase1{"Phase 1: Structural Guard (<1ms)<br/>• Context > 32k tokens?<br/>• Tool/function calls?<br/>• Turn depth > 12?"}
-        Phase2{"Phase 2: Lexical Automaton (<1ms)<br/>• Pre-compiled regex scan<br/>• Local vs Cloud keywords<br/>• Adaptive/Manual Biasing"}
-        Phase1 -->|Violated| CloudFallback[Cloud Route: Gemini Flash / Pro]
-        Phase1 -->|Passed| Phase2
-        Phase2 -->|Architectural / Distributed| CloudFallback
-        Phase2 -->|Coding / Tests / Routine| LocalBranch[Local GPU Route: RTX 5090 / 4090]
-    end
-
-    subgraph StreamingPipeline ["🛡️ Resilient Lookahead & Verification Pipeline"]
-        LocalBranch --> Lookahead{"Phase 3: 3-Token Lookahead Buffer<br/>• Intercept initial 3 tokens<br/>• Cold-Start Grace Window (6s)<br/>• Stalled / Crashed?"}
-        Lookahead -->|Stalled / Exception| CloudFallback
-        Lookahead -->|Stream Active| LoopBreaker["🔁 Sliding-Window Loop Breaker<br/>(Aborts 2-4 token runaway cycles)"]
-        LoopBreaker --> SSEOut[Stream Chunks to Client]
-        
-        VerifyTrigger{"Asymmetric Verification<br/>(/verify, /critique, or mode)"}
-        VerifyTrigger -->|Candidate Draft ($0)| LocalDraft[Local RTX 5090 Generator]
-        LocalDraft --> CloudCritic[Cloud Gemini Auditor / Critic]
-        CloudCritic --> SSEOut
-    end
-
-    CloudFallback --> SSEOut
+    Gateway --> Phase1{Phase 1: Structural Guard}
+    Phase1 -->|Context > 32k or Tools| CloudFallback[Cloud Fallback: Gemini]
+    Phase1 -->|Passed| Phase2{Phase 2: Lexical Automaton}
     
-    subgraph LifecycleTelemetry ["💤 Lifecycle & Telemetry"]
-        IdleCheck["15m Inactivity Monitor"] -->|Unload VRAM| SleepMode["Active-Sleep: 0 MB VRAM (Port 8000 Awake)"]
-        Tokens["eval_count Telemetry"] --> SavingsTracker["Dollar Savings: $3.00/1M tokens"]
-    end
+    Phase2 -->|Architecture / System Design| CloudFallback
+    Phase2 -->|Coding / Tests / Routine| LocalRoute[Local GPU: RTX 5090 / 4090]
+    
+    LocalRoute --> Phase3{Phase 3: 3-Token Lookahead}
+    Phase3 -->|Stalled / Timeout| CloudFallback
+    Phase3 -->|Healthy Stream| LoopBreaker[Sliding-Window Loop Breaker]
+    LoopBreaker --> ClientStream[SSE Stream to Client]
+    
+    CloudFallback --> ClientStream
+    
+    VerifyRoute[Asymmetric Verification: /verify] --> LocalDraft[Local Generator: RTX 5090]
+    LocalDraft --> CloudCritic[Cloud Critic: Gemini Flash]
+    CloudCritic --> ClientStream
 ```
 
 ---
