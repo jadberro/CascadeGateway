@@ -4,8 +4,16 @@ Lives silently in the notification tray next to the clock.
 Allows live control of Biasing Modes, Model Selection, Startup on Boot, Game Mode (VRAM Purge), and Web Dashboard.
 """
 
-import os
 import sys
+import io
+
+# Fix pythonw.exe windowless execution: sys.stdout and sys.stderr are None
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
+
+import os
 import time
 import json
 import socket
@@ -28,12 +36,6 @@ from cascadegateway.core.router import (
     METRICS,
 )
 from cascadegateway.api.server import app
-
-# Fix pythonw.exe: sys.stdout and sys.stderr are None when running windowless
-if sys.stdout is None:
-    sys.stdout = open(DATA_DIR / "tray_stdout.log", "a", encoding="utf-8", buffering=1)
-if sys.stderr is None:
-    sys.stderr = open(DATA_DIR / "tray_stderr.log", "a", encoding="utf-8", buffering=1)
 
 STARTUP_DIR = Path(os.getenv("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LNK = STARTUP_DIR / "RTX5090Cascade.lnk"
@@ -59,6 +61,7 @@ def start_uvicorn_server():
         port=port,
         log_level="info",
         log_config=None,
+        use_colors=False,
         loop="asyncio"
     )
     server_instance = uvicorn.Server(uvicorn_config)
