@@ -72,6 +72,35 @@ async function unloadModels() {
         btn.disabled = false;
     }
 }
+async function preloadModels() {
+    const btn = document.getElementById('btnVramPreload');
+    const origText = btn.innerHTML;
+    btn.innerHTML = '⏳ Loading Weights...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/models/preload', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.success) {
+            btn.innerHTML = '✅ GPU Warmed!';
+            btn.style.background = '#10b981';
+            setTimeout(() => {
+                location.reload();
+            }, 1200);
+        } else {
+            alert('Notice: ' + (data.error || 'Failed to preload'));
+            btn.innerHTML = origText;
+            btn.disabled = false;
+        }
+    } catch (e) {
+        alert('Error connecting to gateway: ' + e);
+        btn.innerHTML = origText;
+        btn.disabled = false;
+    }
+}
 async function autoConfigIDEs() {
     try {
         const res = await fetch('/api/ide/auto-config', { method: 'POST' });

@@ -50,32 +50,6 @@ app = FastAPI(
     version="2.0.0",
 )
 
-LAST_REQUEST_TIME = time.time()
-
-
-@app.on_event("startup")
-async def start_inactivity_monitor():
-    """Active-Sleep State Machine: Unloads GPU VRAM to 0MB after inactivity period while keeping port 8000 listening."""
-    import asyncio
-    async def inactivity_monitor():
-        while True:
-            await asyncio.sleep(60)
-            inactivity_timeout = config.get("idle", {}).get("inactivity_minutes", 15) * 60
-            if time.time() - LAST_REQUEST_TIME > inactivity_timeout:
-                try:
-                    from cascadegateway.api.models import get_loaded_models
-                    loaded = await get_loaded_models()
-                    if loaded:
-                        ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
-                        async with httpx.AsyncClient(timeout=5.0) as client:
-                            for m in loaded:
-                                m_name = m.get("name")
-                                if m_name:
-                                    await client.post(f"{ollama_url}/api/generate", json={"model": m_name, "keep_alive": 0})
-                        print(f"[Active-Sleep] Inactivity threshold reached ({inactivity_timeout//60}m). Dropped GPU VRAM to 0MB. Port 8000 listener remains active.")
-                except Exception:
-                    pass
-    asyncio.create_task(inactivity_monitor())
 
 
 app.add_middleware(

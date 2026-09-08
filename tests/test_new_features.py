@@ -1,4 +1,4 @@
-﻿"""
+"""
 CascadeGateway Engine Hardening, Observability & Verification Test Suite
 Tests:
 1. Sliding-window loop detection ring buffer
@@ -112,6 +112,17 @@ def test_asymmetric_verification_routing():
     print("PASS: Asymmetric Verification (/verify) pipeline verified.")
 
 
+def test_vram_preload_and_residency():
+    print("\n--- 6. Testing VRAM Preload & Permanent Residency ---")
+    resp = httpx.post(f"{BASE_URL}/api/models/preload", json={}, timeout=60.0)
+    assert resp.status_code == 200
+    data = resp.json()
+    print(f"  Preload Result: {data}")
+    assert data.get("success") is True
+    assert "vram_used_gb" in data
+    print("PASS: VRAM Preload & Residency confirmed.")
+
+
 if __name__ == "__main__":
     print("==========================================================")
     print("  CascadeGateway New Features & Hardening Verification")
@@ -121,4 +132,6 @@ if __name__ == "__main__":
     test_dollar_savings_metrics()
     test_diagnostic_routing_headers()
     test_asymmetric_verification_routing()
+    test_vram_preload_and_residency()
     print("\nALL NEW FEATURES & HARDENING TESTS PASSED!")
+

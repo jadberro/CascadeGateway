@@ -22,7 +22,7 @@ from cascadegateway.core.router import (
 )
 
 TTFT_DEADLINE_LOADED = 2.5    # 2.5s for warm models in VRAM
-TTFT_DEADLINE_COLD = 6.0      # 6.0s grace window for NVMe-to-VRAM model loading (boosted for cold weights)
+TTFT_DEADLINE_COLD = 60.0     # 60.0s grace window for NVMe-to-VRAM model loading when waking up from pause
 
 
 def detect_repetition_loop(tokens: List[str]) -> bool:
@@ -137,6 +137,7 @@ async def stream_with_lookahead_failover(
         "model": local_model,
         "messages": messages,
         "stream": True,
+        "keep_alive": -1,  # Keep permanently resident in GPU VRAM (never unload on idle)
         "options": {"temperature": temperature, "num_ctx": 32768}
     }
     if max_tokens:

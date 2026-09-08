@@ -115,6 +115,29 @@ def free_vram_action(icon, item):
         icon.notify(f"Failed to free VRAM: {e}", "CascadeGateway")
 
 
+def preload_vram_action(icon, item):
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:8000/api/models/preload",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=120.0) as resp:
+            data = json.loads(resp.read().decode())
+            if data.get("success"):
+                model = data.get("model", "Model")
+                icon.notify(
+                    f"⚡ {model} loaded and pinned in VRAM!",
+                    "CascadeGateway"
+                )
+            else:
+                icon.notify(f"Preload notice: {data.get('error')}", "CascadeGateway")
+    except Exception as e:
+        icon.notify(f"Failed to preload VRAM: {e}", "CascadeGateway")
+
+
+
 def set_bias_mode(mode: str, factor: float = 0.35):
     def action(icon, item):
         BIASING_STATE["mode"] = mode
@@ -225,6 +248,7 @@ def create_menu():
         item("Open Web Dashboard", open_dashboard, default=True),
         item("⚡ Auto-Configure Continue / Cursor", auto_configure_ides_action),
         item("🛑 Pause & Free GPU (Unload VRAM)", free_vram_action),
+        item("▶️ Resume & Preload GPU (Warm VRAM)", preload_vram_action),
         Menu.SEPARATOR,
         item("Workflow Mode", Menu(
             item("🧠 Architect & Builder (Review Gate)", set_workflow_mode_action("architect"), checked=is_workflow_mode_active("architect"), radio=True),

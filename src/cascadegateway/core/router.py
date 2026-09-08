@@ -306,6 +306,7 @@ async def call_ollama_non_streaming(base_url: str, model: str, messages: List[Di
             "model": model,
             "messages": messages,
             "stream": False,
+            "keep_alive": -1,  # Keep permanently resident in GPU VRAM
             "options": {"temperature": kwargs.get("temperature", 0.7), "num_ctx": 32768}
         }
         if "max_tokens" in kwargs and kwargs["max_tokens"] is not None:

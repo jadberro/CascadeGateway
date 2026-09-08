@@ -54,7 +54,7 @@ flowchart TD
 * **🔁 Anti-Hallucination Sliding-Window Loop Breaker**: In-flight ring buffer tracking token emission sequences (lengths 2, 3, 4 repeated $\ge 4\times$), terminating runaway generative loops immediately.
 * **⚡ 1-Click IDE Auto-Configuration**: Automated zero-friction setup endpoint (`/api/ide/auto-config`) and UI button for VSCode Continue (`~/.continue/config.json`) and Cursor.
 * **💰 Zero-Surprise Dollar Savings Telemetry**: Hardware-native token accounting (`eval_count`) calculating real-time dollar savings based on commercial frontier rates ($3.00/1M tokens).
-* **💤 On-Demand Active-Sleep VRAM Lifecycle**: 15-minute inactivity monitor automatically drops GPU VRAM footprint to 0 MB while keeping port 8000 socket open and responsive.
+* **⚡ Persistent GPU VRAM Residency & Zero-Cold-Start**: Models remain permanently resident in GPU VRAM (`keep_alive: -1`) across idle periods and tasks, ensuring instant zero-delay responses. Includes manual 1-Click **"Pause GPU"** (instant VRAM purge for AAA gaming) and **"Warm GPU"** (preloads weights into VRAM).
 * **Native Model Context Protocol (MCP)**: Exposes a high-performance Streamable HTTP and Stdio MCP endpoint for **Google Antigravity** and **Claude Desktop**.
 * **🎛️ Dynamic Model Selection**: Select any installed local model for both the **Architect** role (`deepseek-r1:14b`, `gemma4:26b`, etc.) and the **Builder** role (`qwen2.5-coder:32b`, etc.) directly from the Web UI toolbar or Windows Tray submenus. Automatically detects newly pulled models from Ollama without restarting the gateway.
 * **Zero-Window Background Tray App**: Runs silently in the system tray, boots with Windows/Linux, and includes single-instance mutex protection.
@@ -257,7 +257,8 @@ CascadeGateway/
 | `/v1/chat/completions` | `POST` | OpenAI-compatible chat completion endpoint supporting resilient SSE streaming, lookahead failover, loop breaking, and diagnostic headers (`X-Cascade-*`). |
 | `/v1/models` | `GET` | Returns available virtual model aliases (`cascade-auto`, `local-5090`) and physical Ollama models. |
 | `/api/hardware` | `GET` | Real-time GPU telemetry: VRAM allocation, temperature, power draw (W), and detected hardware tier. |
-| `/api/models/unload` | `POST` | **Instant VRAM Purge ("Pause & Free GPU")**: Evicts loaded models to 0 MB VRAM in <1s for AAA gaming or rendering. |
+| `/api/models/unload` | `POST` | **Instant VRAM Purge ("Pause GPU")**: Evicts loaded models to 0 MB VRAM in <1s for AAA gaming or rendering. |
+| `/api/models/preload` | `POST` | **Warm GPU**: Preloads and pins model into VRAM with indefinite residency (`keep_alive: -1`). |
 | `/api/ide/auto-config` | `POST` | **1-Click IDE Setup**: Injects CascadeGateway configuration into `~/.continue/config.json` and detects Cursor environments. |
 | `/api/workflow/mode` | `POST` | Sets active workflow mode (`architect`, `builder`, `solo`, `verify`, `deep_context`, `math`). |
 | `/metrics` | `GET` | Telemetry: exact hardware token accounting (`eval_count`), local offload percentage, and real-time dollar savings. |

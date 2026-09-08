@@ -129,6 +129,36 @@ async def unload_models_endpoint(req: Optional[UnloadModelRequest] = None):
     }
 
 
+@router.post("/api/models/preload")
+async def preload_models_endpoint(req: Optional[Dict[str, Any]] = None):
+    """Preloads the active local model into VRAM with keep_alive: -1 so it stays permanently hot and resident."""
+    ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+    installed = await get_available_ollama_models(ollama_url)
+    best_model = select_best_local_model(installed)
+    target_model = (req.get("model") if req else None) or best_model
+    if not target_model:
+        return {"success": False, "error": "No local model available to preload."}
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{ollama_url}/api/generate",
+                json={"model": target_model, "keep_alive": -1}
+            )
+            if resp.status_code == 200:
+                gpu = get_gpu_telemetry()
+                return {
+                    "success": True,
+                    "model": target_model,
+                    "message": f"Successfully preloaded {target_model} into VRAM with indefinite residency.",
+                    "vram_used_gb": gpu.get("vram_used_gb", 0),
+                    "vram_percent": gpu.get("vram_percent", 0)
+                }
+            return {"success": False, "error": f"Ollama returned status {resp.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @router.get("/api/models/selection")
 async def get_model_selection():
     ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
