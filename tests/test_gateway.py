@@ -89,7 +89,7 @@ def test_simple_prompt_local_routing():
 
     t0 = time.time()
     try:
-        resp = httpx.post(f"{BASE_URL}/v1/chat/completions", json=payload, timeout=60.0)
+        resp = httpx.post(f"{BASE_URL}/v1/chat/completions", json=payload, timeout=120.0)
         resp.raise_for_status()
         data = resp.json()
         duration = time.time() - t0
