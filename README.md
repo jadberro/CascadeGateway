@@ -43,11 +43,16 @@ flowchart TD
   * **🚀 Solo Sprint**: Instant local coding via `qwen2.5-coder:32b` for quick functions, tests, and scripts.
   * **🌐 Deep Context**: Gemini 2.5 Flash ingests massive repository files (1M context) $\rightarrow$ modular execution on local 5090.
   * **🔬 Math & Algo Proof**: Deep Chain-of-Thought formal verification for cryptography and concurrency algorithms.
+  * **🛡️ Asymmetric Verification (`/verify`)**: High-speed local draft synthesis on RTX 5090 ($0) combined with an anonymous strict cloud auditor (Gemini) providing production-grade critique and code enhancement without leaking full history.
 * **🛡️ Sub-5ms Intelligent Routing & 3-Token Lookahead Failover**: Three-phase classification pipeline: Phase 1 Structural & VRAM Budget Validation (<1ms, prevents swapping to system RAM), Phase 2 Single-Pass Lexical Scan (<1ms), and Phase 3 Resilient Streaming with an in-memory 3-token lookahead buffer that transparently replays stalled local requests to Gemini Cloud without dropping client connections or throwing IDE error popups.
+* **🔁 Anti-Hallucination Sliding-Window Loop Breaker**: In-flight ring buffer tracking token emission sequences (lengths 2, 3, 4 repeated $\ge 4\times$), terminating runaway generative loops immediately.
+* **⚡ 1-Click IDE Auto-Configuration**: Automated zero-friction setup endpoint (`/api/ide/auto-config`) and UI button for VSCode Continue (`~/.continue/config.json`) and Cursor.
+* **💰 Zero-Surprise Dollar Savings Telemetry**: Hardware-native token accounting (`eval_count`) calculating real-time dollar savings based on commercial frontier rates ($3.00/1M tokens).
+* **💤 On-Demand Active-Sleep VRAM Lifecycle**: 15-minute inactivity monitor automatically drops GPU VRAM footprint to 0 MB while keeping port 8000 socket open and responsive.
 * **Native Model Context Protocol (MCP)**: Exposes a high-performance Streamable HTTP and Stdio MCP endpoint for **Google Antigravity** and **Claude Desktop**.
 * **🎛️ Dynamic Model Selection**: Select any installed local model for both the **Architect** role (`deepseek-r1:14b`, `gemma4:26b`, etc.) and the **Builder** role (`qwen2.5-coder:32b`, etc.) directly from the Web UI toolbar or Windows Tray submenus. Automatically detects newly pulled models from Ollama without restarting the gateway.
 * **Zero-Window Background Tray App**: Runs silently in the system tray, boots with Windows/Linux, and includes single-instance mutex protection.
-* **🎮 1-Click Game Mode (Instant VRAM Purge)**: Evicts loaded models from VRAM in <1s via a dedicated button on the Web UI, Windows Tray, or `POST /api/models/unload`. Frees 20–30+ GB of VRAM immediately for AAA gaming, Blender, or video editing without terminating the server. Models reload automatically on demand when coding.
+* **🎮 1-Click Pause & Free GPU (Instant VRAM Purge)**: Evicts loaded models from VRAM in <1s via a dedicated button on the Web UI, Windows Tray, or `POST /api/models/unload`. Frees 20–30+ GB of VRAM immediately for AAA gaming, Blender, or video editing without terminating the server. Models reload automatically on demand when coding.
 * **Live Hardware Telemetry**: In-browser control center showing real-time VRAM allocation, GPU power draw (W), temperature (°C), lifetime token savings, and an interactive prompt runner.
 * **Standard OpenAI-Compatible API**: Seamless drop-in replacement (`/v1/chat/completions`) for Cursor, VSCode (Continue.dev), Aider, Claude Dev, and custom scripts.
 

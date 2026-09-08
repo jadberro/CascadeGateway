@@ -72,6 +72,19 @@ async function unloadModels() {
         btn.disabled = false;
     }
 }
+async function autoConfigIDEs() {
+    try {
+        const res = await fetch('/api/ide/auto-config', { method: 'POST' });
+        const data = await res.json();
+        if (data.continue_configured) {
+            alert('✅ Success! Configured Continue (~/.continue/config.json) to connect to CascadeGateway on localhost:8000.');
+        } else {
+            alert('IDE Status:\n' + data.details.join('\n'));
+        }
+    } catch (e) {
+        alert('Failed to auto-configure IDEs: ' + e);
+    }
+}
 async function setMode(mode) {
     await fetch('/v1/settings', {
         method: 'POST',

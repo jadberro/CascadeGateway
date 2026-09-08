@@ -35,6 +35,7 @@ from cascadegateway.core.router import (
     get_available_ollama_models,
     call_ollama_non_streaming,
     call_gemini_non_streaming,
+    get_estimated_dollars_saved,
 )
 from cascadegateway.core.classifier import route_request
 from cascadegateway.api import models, pipeline
@@ -48,6 +49,34 @@ app = FastAPI(
     description="Hardware-Adaptive Local LLM & Cloud Cascading Architecture",
     version="2.0.0",
 )
+
+LAST_REQUEST_TIME = time.time()
+
+
+@app.on_event("startup")
+async def start_inactivity_monitor():
+    """Active-Sleep State Machine: Unloads GPU VRAM to 0MB after inactivity period while keeping port 8000 listening."""
+    import asyncio
+    async def inactivity_monitor():
+        while True:
+            await asyncio.sleep(60)
+            inactivity_timeout = config.get("idle", {}).get("inactivity_minutes", 15) * 60
+            if time.time() - LAST_REQUEST_TIME > inactivity_timeout:
+                try:
+                    from cascadegateway.api.models import get_loaded_models
+                    loaded = await get_loaded_models()
+                    if loaded:
+                        ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+                        async with httpx.AsyncClient(timeout=5.0) as client:
+                            for m in loaded:
+                                m_name = m.get("name")
+                                if m_name:
+                                    await client.post(f"{ollama_url}/api/generate", json={"model": m_name, "keep_alive": 0})
+                        print(f"[Active-Sleep] Inactivity threshold reached ({inactivity_timeout//60}m). Dropped GPU VRAM to 0MB. Port 8000 listener remains active.")
+                except Exception:
+                    pass
+    asyncio.create_task(inactivity_monitor())
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -157,6 +186,8 @@ class ChatRequest(BaseModel):
 
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatRequest):
+    global LAST_REQUEST_TIME
+    LAST_REQUEST_TIME = time.time()
     t0 = time.time()
     METRICS["total_requests"] += 1
     messages = req.messages
@@ -193,6 +224,53 @@ async def chat_completions(req: ChatRequest):
     if comp_score > 0.85:
         cloud_model = config.get("cloud", {}).get("pro_model", "gemini-2.5-pro")
 
+    # Diagnostic Routing Headers
+    routing_headers = {
+        "X-Cascade-Route": route_target,
+        "X-Cascade-Model": best_local_model if route_target == "local" else cloud_model,
+        "X-Cascade-Decision-MS": str(round(decision["latency_ms"], 3)),
+        "X-Cascade-Reason": str(route_reason)
+    }
+
+    # ASYMMETRIC VERIFICATION TOPOLOGY: Local Generator + Cloud Critic
+    is_verify_mode = (
+        WORKFLOW_STATE.get("active_mode") == "verify" or
+        user_snippet.strip().startswith("/verify") or
+        user_snippet.strip().startswith("/critique") or
+        "[verify]" in user_snippet.lower()
+    )
+    if is_verify_mode and available_local_models:
+        from cascadegateway.core.streaming import stream_asymmetric_verification
+        # Clean prompt tag from message for inference
+        cleaned_messages = [dict(m) for m in messages]
+        for m in reversed(cleaned_messages):
+            if m.get("role") == "user" and isinstance(m.get("content"), str):
+                c = m["content"]
+                for tag in ("/verify", "/critique"):
+                    if c.strip().startswith(tag):
+                        m["content"] = c.strip()[len(tag):].strip()
+                break
+
+        verify_headers = {
+            "X-Cascade-Route": "asymmetric-verification",
+            "X-Cascade-Model": f"{best_local_model}->{cloud_model}",
+            "X-Cascade-Decision-MS": str(round(decision["latency_ms"], 3)),
+            "X-Cascade-Reason": "Asymmetric Consensus (Local Generator + Cloud Critic)",
+            "X-Cascade-Pipeline": "asymmetric-verification"
+        }
+        if req.stream:
+            generator = stream_asymmetric_verification(
+                local_url=ollama_url,
+                local_model=best_local_model,
+                cloud_model=cloud_model,
+                gemini_api_key=api_key,
+                messages=cleaned_messages,
+                temperature=req.temperature or 0.7,
+                max_tokens=req.max_tokens,
+                user_snippet=user_snippet
+            )
+            return StreamingResponse(generator, media_type="text/event-stream", headers=verify_headers)
+
     # PHASE 3: STREAMING EXECUTION WITH 3-TOKEN LOOKAHEAD BUFFER & FAILOVER
     if req.stream:
         if route_target == "local" and available_local_models:
@@ -216,7 +294,7 @@ async def chat_completions(req: ChatRequest):
                 is_loaded=is_loaded,
                 user_snippet=user_snippet
             )
-            return StreamingResponse(generator, media_type="text/event-stream")
+            return StreamingResponse(generator, media_type="text/event-stream", headers=routing_headers)
 
         # Directly routed to Cloud (Streamed)
         if not api_key:
@@ -231,7 +309,8 @@ async def chat_completions(req: ChatRequest):
         save_persistent_metrics()
         return StreamingResponse(
             stream_gemini_fallback(cloud_model, messages, api_key, chunk_id, req.temperature or 0.7, req.max_tokens),
-            media_type="text/event-stream"
+            media_type="text/event-stream",
+            headers=routing_headers
         )
 
     # NON-STREAMING EXECUTION WITH LOOKAHEAD FAILOVER
@@ -254,7 +333,7 @@ async def chat_completions(req: ChatRequest):
                 "tokens_saved": prompt_tokens + comp_tokens,
                 "routing_latency_ms": decision["latency_ms"]
             }
-            return JSONResponse(content=resp)
+            return JSONResponse(content=resp, headers=routing_headers)
         except Exception as e:
             print(f"[CASCADING NOTICE] Local generation failed ({e}). Replaying to Google Gemini Cloud...")
             METRICS["cloud_fallbacks"] += 1
@@ -278,7 +357,7 @@ async def chat_completions(req: ChatRequest):
         "model": cloud_model,
         "routing_latency_ms": decision["latency_ms"]
     }
-    return JSONResponse(content=resp)
+    return JSONResponse(content=resp, headers=routing_headers)
 
 
 class BiasingUpdateRequest(BaseModel):
@@ -402,6 +481,10 @@ async def get_metrics():
         "tokens": {
             "tokens_saved_locally": total_tokens_saved,
             "cloud_tokens_consumed": cloud_tokens_total,
+        },
+        "savings": {
+            "estimated_dollars_saved": get_estimated_dollars_saved(),
+            "cost_basis": "$3.00 per 1M tokens"
         },
         "gpu": get_gpu_telemetry(),
         "biasing": {

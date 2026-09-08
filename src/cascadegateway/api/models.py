@@ -3,8 +3,10 @@ CascadeGateway Models API
 Endpoints for hardware discovery, pulling models, loaded VRAM status, Game Mode (VRAM purge), and model selection.
 """
 
+import os
 import json
-from typing import Optional, List
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -148,3 +150,69 @@ async def set_model_selection(req: ModelSelectionUpdate):
     if req.builder is not None:
         MODEL_SELECTION_STATE["builder"] = req.builder
     return await get_model_selection()
+
+
+async def is_model_in_vram(model_name: str) -> bool:
+    """Checks via Ollama /api/ps if the specified model is currently active in VRAM."""
+    loaded = await get_loaded_models()
+    return any(model_name in m.get("name", "") for m in loaded)
+
+
+def auto_configure_ides() -> Dict[str, Any]:
+    """Auto-configures Continue and Cursor to connect to CascadeGateway on localhost:8000."""
+    home_dir = Path.home()
+    details = []
+    continue_configured = False
+
+    # 1. Continue Extension Configuration (~/.continue/config.json)
+    continue_config_path = home_dir / ".continue" / "config.json"
+    if continue_config_path.exists():
+        try:
+            with open(continue_config_path, "r", encoding="utf-8") as f:
+                c_data = json.load(f)
+
+            models_list = c_data.get("models", [])
+            already_present = any(m.get("apiBase") == "http://127.0.0.1:8000/v1" for m in models_list)
+
+            if not already_present:
+                cascade_entry = {
+                    "title": "CascadeGateway (RTX 5090 Auto)",
+                    "provider": "openai",
+                    "model": "cascade-auto",
+                    "apiBase": "http://127.0.0.1:8000/v1",
+                    "apiKey": "dummy"
+                }
+                models_list.append(cascade_entry)
+                c_data["models"] = models_list
+                with open(continue_config_path, "w", encoding="utf-8") as f:
+                    json.dump(c_data, f, indent=2)
+                continue_configured = True
+                details.append("Added CascadeGateway to ~/.continue/config.json")
+            else:
+                details.append("CascadeGateway already present in ~/.continue/config.json")
+        except Exception as e:
+            details.append(f"Error updating Continue config: {e}")
+    else:
+        details.append("Continue config file not found at ~/.continue/config.json")
+
+    # 2. Cursor Configuration (~/.cursorrules or workspace instructions)
+    cursorrules_path = home_dir / ".cursorrules"
+    cursor_dir = home_dir / ".cursor"
+    if cursorrules_path.exists() or cursor_dir.exists():
+        details.append("Cursor environment detected. OpenAI base URL can be pointed to http://127.0.0.1:8000/v1")
+    else:
+        details.append("Cursor standard global config checked")
+
+    return {
+        "success": True,
+        "continue_configured": continue_configured,
+        "details": details,
+        "endpoint": "http://127.0.0.1:8000/v1"
+    }
+
+
+@router.post("/api/ide/auto-config")
+async def auto_config_endpoint():
+    """1-Click IDE Auto-Configuration Endpoint."""
+    return auto_configure_ides()
+

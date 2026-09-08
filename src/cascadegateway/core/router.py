@@ -80,8 +80,20 @@ WORKFLOW_MODES = {
         "description": "Deep Chain-of-Thought formal verification for concurrency, cryptography, and complex mathematics.",
         "icon": "🔬",
         "has_gate": False
+    },
+    "verify": {
+        "name": "Asymmetric Verification",
+        "description": "Local GPU drafts candidate code ($0 cost) -> Cloud Gemini acts as strict auditor & critic.",
+        "icon": "🛡️",
+        "has_gate": False
     }
 }
+
+
+def get_estimated_dollars_saved() -> float:
+    """Calculates estimated dollar savings at $3.00 per 1M tokens saved locally."""
+    total_saved = METRICS["tokens_saved_prompt"] + METRICS["tokens_saved_completion"]
+    return round((total_saved / 1_000_000.0) * 3.00, 2)
 
 WORKFLOW_STATE = {
     "active_mode": "architect"

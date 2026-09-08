@@ -173,13 +173,33 @@ def is_model_selected(role: str, model_name: str) -> bool:
     return MODEL_SELECTION_STATE.get(role, "auto") == model_name
 
 
+def auto_configure_ides_action(icon, item):
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:8000/api/ide/auto-config",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            data = json.loads(resp.read().decode())
+            if data.get("continue_configured"):
+                icon.notify("Auto-configured Continue (~/.continue/config.json)!", "CascadeGateway")
+            else:
+                details = "; ".join(data.get("details", []))
+                icon.notify(f"IDE Config: {details}", "CascadeGateway")
+    except Exception as e:
+        icon.notify(f"Auto-config failed: {e}", "CascadeGateway")
+
+
 def get_stats_text(item):
     saved = METRICS["tokens_saved_prompt"] + METRICS["tokens_saved_completion"]
+    dollars = (saved / 1_000_000.0) * 3.00
     reqs = METRICS["total_requests"]
     offload = 0.0
     if reqs > 0:
         offload = (METRICS["local_5090_requests"] / reqs) * 100.0
-    return f"Stats: {saved:,} tokens saved ({offload:.0f}% offload)"
+    return f"Saved Today: ${dollars:.2f} ({saved:,} tokens - {offload:.0f}% offload)"
 
 
 def restart_server(icon, item):
@@ -203,10 +223,12 @@ def create_menu():
     return Menu(
         item("CascadeGateway (Port 8000)", lambda icon, item: None, enabled=False),
         item("Open Web Dashboard", open_dashboard, default=True),
-        item("🎮 Game Mode (Free VRAM)", free_vram_action),
+        item("⚡ Auto-Configure Continue / Cursor", auto_configure_ides_action),
+        item("🛑 Pause & Free GPU (Unload VRAM)", free_vram_action),
         Menu.SEPARATOR,
         item("Workflow Mode", Menu(
             item("🧠 Architect & Builder (Review Gate)", set_workflow_mode_action("architect"), checked=is_workflow_mode_active("architect"), radio=True),
+            item("🛡️ Asymmetric Verification (/verify)", set_workflow_mode_action("verify"), checked=is_workflow_mode_active("verify"), radio=True),
             item("🚀 Solo Sprint (Direct Fast Coder)", set_workflow_mode_action("solo"), checked=is_workflow_mode_active("solo"), radio=True),
             item("🌐 Deep Context (Gemini + Local)", set_workflow_mode_action("deep_context"), checked=is_workflow_mode_active("deep_context"), radio=True),
             item("🔬 Math & Algo Proof", set_workflow_mode_action("algo"), checked=is_workflow_mode_active("algo"), radio=True),

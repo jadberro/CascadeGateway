@@ -11,8 +11,9 @@
         <div class="header">
             <h1>⚡ {{ gpu_title }} Cascading Gateway <span class="badge-live">Online</span></h1>
             <div style="display:flex; gap:10px; align-items:center;">
-                <button id="btnVramUnload" onclick="unloadModels()" style="background:#dc2626; border:none; padding:9px 16px; border-radius:6px; font-weight:700; display:flex; align-items:center; gap:6px;">🎮 Game Mode (Free VRAM)</button>
-                <button onclick="openModal()" style="background:#0284c7; border:none; padding:9px 16px; border-radius:6px; font-weight:700;">⚙️ Connect IDEs & MCP</button>
+                <button onclick="autoConfigIDEs()" style="background:#10b981; border:none; padding:9px 16px; border-radius:6px; font-weight:700; display:flex; align-items:center; gap:6px; cursor:pointer;">⚡ Auto-Configure IDEs</button>
+                <button id="btnVramUnload" onclick="unloadModels()" style="background:#dc2626; border:none; padding:9px 16px; border-radius:6px; font-weight:700; display:flex; align-items:center; gap:6px; cursor:pointer;">🛑 Pause & Free GPU</button>
+                <button onclick="openModal()" style="background:#0284c7; border:none; padding:9px 16px; border-radius:6px; font-weight:700; cursor:pointer;">⚙️ Connect IDEs & MCP</button>
             </div>
         </div>
 
@@ -59,6 +60,7 @@
             <h3>Engineering Workflow Mode <span style="font-size:13px; color:#94a3b8;">Active: <b style="color:#38bdf8;">{{ wf_info['icon'] }} {{ wf_info['name'] }}</b></span></h3>
             <div class="btn-group">
                 <button class="{{ 'active' if active_wf_mode == 'architect' else '' }}" onclick="setWorkflowMode('architect')">🧠 Architect & Builder (Review Gate)</button>
+                <button class="{{ 'active' if active_wf_mode == 'verify' else '' }}" onclick="setWorkflowMode('verify')">🛡️ Asymmetric Verification</button>
                 <button class="{{ 'active' if active_wf_mode == 'solo' else '' }}" onclick="setWorkflowMode('solo')">🚀 Solo Sprint (Direct Coder)</button>
                 <button class="{{ 'active' if active_wf_mode == 'deep_context' else '' }}" onclick="setWorkflowMode('deep_context')">🌐 Deep Context (Gemini + 5090)</button>
                 <button class="{{ 'active' if active_wf_mode == 'algo' else '' }}" onclick="setWorkflowMode('algo')">🔬 Math & Algo Proof</button>
