@@ -74,19 +74,19 @@ def test_phase2_lexical_scans():
     print("\n--- 3. Testing Phase 2: Lexical Intent Scans ---")
     classifier = LexicalClassifier()
 
-    # Cloud Trigger
+    # Local Architect Trigger (routes to local DeepSeek-R1 / Gemma on RTX 5090)
     r, reason, score, _ = classifier.classify_with_latency("There is a subtle memory leak and race condition here.")
-    assert r == "cloud"
-    assert "Cloud Trigger" in reason
+    assert r == "local_architect"
+    assert "Architectural Trigger" in reason
 
     # Local Trigger
     r, reason, score, _ = classifier.classify_with_latency("Write a pytest test case with mock assertions.")
-    assert r == "local"
-    assert "Local Trigger" in reason
+    assert r == "local_builder"
+    assert "Builder Trigger" in reason
 
-    # Ambiguous Trigger -> defaults to Local
+    # Ambiguous Trigger -> defaults to Local Builder
     r, reason, score, _ = classifier.classify_with_latency("How does Python handle garbage collection?")
-    assert r == "local"
+    assert r == "local_builder"
     assert "Ambiguous" in reason
 
     print("PASS: Phase 2 lexical classification logic verified.")
@@ -126,18 +126,24 @@ def test_live_streaming_endpoint():
 
 def test_manual_biasing_threshold():
     print("\n--- 5. Testing Manual Biasing Threshold Logic ---")
-    # Standard coding query with high bias (0.9) -> stays strictly local
+    # Standard coding query -> stays local builder
     std_msg = [{"role": "user", "content": "How do I format this JSON object and add logging?"}]
     res_std = route_request(std_msg, biasing_state={"mode": "manual", "bias_factor": 0.9})
-    print(f"  Standard query (bias 0.9): route={res_std['route']}, reason={res_std['reason']}")
-    assert res_std["route"] == "local"
+    print(f"  Standard query: route={res_std['route']}, role={res_std.get('target_role')}")
+    assert res_std["target_role"] == "builder"
+    assert res_std["route"] == "local_builder"
 
-    # Hard architectural / cloud trigger query with high bias (0.9) -> escalates to cloud (0.95 >= 0.80)
+    # Architectural query -> routes to local architect (DeepSeek-R1 / Gemma on RTX 5090)
     arch_msg = [{"role": "user", "content": "System design analysis of distributed consensus and architectural tradeoffs."}]
     res_arch = route_request(arch_msg, biasing_state={"mode": "manual", "bias_factor": 0.9})
-    print(f"  Architectural query (bias 0.9): route={res_arch['route']}, reason={res_arch['reason']}")
-    assert res_arch["route"] == "cloud"
-    print("PASS: Manual biasing threshold logic verified.")
+    print(f"  Architectural query: route={res_arch['route']}, role={res_arch.get('target_role')}")
+    assert res_arch["target_role"] == "architect"
+    assert res_arch["route"] == "local_architect"
+
+    # Cloud override query -> routes to cloud
+    res_cloud = route_request(arch_msg, requested_model="gemini-2.5-pro")
+    assert res_cloud["route"] == "cloud"
+    print("PASS: Role routing and model escalation logic verified.")
 
 
 def test_short_response_lookahead():

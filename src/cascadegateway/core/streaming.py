@@ -21,7 +21,7 @@ from cascadegateway.core.router import (
     save_persistent_metrics
 )
 
-TTFT_DEADLINE_LOADED = 2.5    # 2.5s for warm models in VRAM
+TTFT_DEADLINE_LOADED = 8.0    # 8.0s for warm models in VRAM (allows CoT/reasoning models like DeepSeek-R1/Gemma to formulate initial tokens)
 TTFT_DEADLINE_COLD = 60.0     # 60.0s grace window for NVMe-to-VRAM model loading when waking up from pause
 
 
@@ -169,9 +169,12 @@ async def stream_with_lookahead_failover(
                                 hardware_eval_stats["prompt_eval_count"] = data["prompt_eval_count"]
                             await token_queue.put(None)  # Sentinel
                             break
-                        content = data.get("message", {}).get("content", "")
-                        if content:
-                            await token_queue.put(content)
+                        msg = data.get("message", {})
+                        content = msg.get("content", "")
+                        thinking = msg.get("thinking", "")
+                        token_piece = content if content else thinking
+                        if token_piece:
+                            await token_queue.put(token_piece)
                     except Exception as parse_err:
                         error_container["error"] = str(parse_err)
                         producer_error.set()

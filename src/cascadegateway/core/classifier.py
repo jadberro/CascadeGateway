@@ -50,12 +50,13 @@ def validate_structure(
 class LexicalClassifier:
     """Phase 2: Ultra-Fast Lexical Scan (1-2ms) via single-pass regex word automaton."""
 
-    CLOUD_TRIGGERS = [
+    ARCHITECT_TRIGGERS = [
         "race condition", "deadlock", "memory leak", "thread safety", "system design",
         "architectural tradeoffs", "refactor across files", "cryptographic vulnerability",
         "exploit", "algorithmic complexity", "dynamic programming", "formal verification",
         "formal proof", "distributed consensus", "concurrency hazard", "lock contention",
-        "zero-day", "microarchitectural attack", "byzantine fault", "distributed transaction"
+        "zero-day", "microarchitectural attack", "byzantine fault", "distributed transaction",
+        "system architecture", "tradeoff analysis", "design pattern"
     ]
 
     LOCAL_TRIGGERS = [
@@ -63,32 +64,32 @@ class LexicalClassifier:
         "pytest", "format json", "convert to yaml", "syntax error", "fix typo",
         "boilerplate", "getter and setter", "dataclass", "pydantic model",
         "rename variable", "format code", "add logging", "string manipulation",
-        "reverse a string", "helper function", "write a test", "crud"
+        "reverse a string", "helper function", "write a test", "crud", "implement function"
     ]
 
     def __init__(self):
-        cloud_pattern = r"\b(?:" + "|".join(re.escape(t) for t in self.CLOUD_TRIGGERS) + r")\b"
+        architect_pattern = r"\b(?:" + "|".join(re.escape(t) for t in self.ARCHITECT_TRIGGERS) + r")\b"
         local_pattern = r"\b(?:" + "|".join(re.escape(t) for t in self.LOCAL_TRIGGERS) + r")\b"
-        self.cloud_regex = re.compile(cloud_pattern, re.IGNORECASE)
+        self.architect_regex = re.compile(architect_pattern, re.IGNORECASE)
         self.local_regex = re.compile(local_pattern, re.IGNORECASE)
 
     def classify_with_latency(self, user_text: str) -> Tuple[str, str, float, float]:
         t0 = time.perf_counter()
 
-        cloud_match = self.cloud_regex.search(user_text)
-        if cloud_match:
-            matched = cloud_match.group(0)
+        architect_match = self.architect_regex.search(user_text)
+        if architect_match:
+            matched = architect_match.group(0)
             dur_ms = (time.perf_counter() - t0) * 1000.0
-            return "cloud", f"Cloud Trigger matched: '{matched}'", 0.95, dur_ms
+            return "local_architect", f"Architectural Trigger matched: '{matched}' -> Local Reasoning Model (RTX 5090)", 0.70, dur_ms
 
         local_match = self.local_regex.search(user_text)
         if local_match:
             matched = local_match.group(0)
             dur_ms = (time.perf_counter() - t0) * 1000.0
-            return "local", f"Local Trigger matched: '{matched}'", 0.05, dur_ms
+            return "local_builder", f"Builder Trigger matched: '{matched}' -> Local Synthesizer (RTX 5090)", 0.05, dur_ms
 
         dur_ms = (time.perf_counter() - t0) * 1000.0
-        return "local", "Ambiguous query defaulted to local (Maximize RTX 5090 VRAM)", 0.20, dur_ms
+        return "local_builder", "Ambiguous query defaulted to Local Builder (Maximize RTX 5090 VRAM)", 0.20, dur_ms
 
 
 # Pre-compile singleton classifier instance at module load
@@ -160,21 +161,15 @@ def route_request(
     # Biasing Override Check
     biasing_mode = biasing_state.get("mode", "adaptive")
     if biasing_mode == "local_only":
-        route = "local"
+        if route == "cloud":
+            route = "local_builder"
         reason += " [Strict 100% Local Mode]"
-    elif biasing_mode == "manual":
-        bias_factor = biasing_state.get("bias_factor", 0.35)
-        # Higher bias_factor raises the complexity threshold required to escape to the cloud
-        escalation_threshold = 0.35 + (bias_factor * 0.5)
-        if complexity_score < escalation_threshold:
-            route = "local"
-        else:
-            route = "cloud"
-            reason += f" [Manual Bias: Complexity {complexity_score:.2f} >= Threshold {escalation_threshold:.2f}]"
 
     total_latency_ms = (time.perf_counter() - t_start) * 1000.0
+    target_role = "architect" if "architect" in route else "cloud" if route == "cloud" else "builder"
     return {
         "route": route,
+        "target_role": target_role,
         "phase": 2,
         "reason": reason,
         "complexity_score": complexity_score,

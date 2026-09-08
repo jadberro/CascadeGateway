@@ -17,12 +17,13 @@ flowchart TD
     
     Gateway --> Phase1{Phase 1: Structural Guard}
     Phase1 -->|Context > 32k or Tools| CloudFallback[Cloud Fallback: Gemini]
-    Phase1 -->|Passed| Phase2{Phase 2: Lexical Automaton}
+    Phase1 -->|Passed| Phase2{Phase 2: Lexical Automaton <1ms}
     
-    Phase2 -->|Architecture / System Design| CloudFallback
-    Phase2 -->|Coding / Tests / Routine| LocalRoute[Local GPU: RTX 5090 / 4090]
+    Phase2 -->|Architecture / Reasoning| LocalArchitect[Local Architect: DeepSeek-R1 / Gemma 4 (RTX 5090)]
+    Phase2 -->|Coding / Tests / Routine| LocalBuilder[Local Builder: Qwen 2.5 Coder 32B (RTX 5090)]
     
-    LocalRoute --> Phase3{Phase 3: 3-Token Lookahead}
+    LocalArchitect --> Phase3{Phase 3: 3-Token Lookahead}
+    LocalBuilder --> Phase3
     Phase3 -->|Stalled / Timeout| CloudFallback
     Phase3 -->|Healthy Stream| LoopBreaker[Sliding-Window Loop Breaker]
     LoopBreaker --> ClientStream[SSE Stream to Client]
@@ -32,12 +33,16 @@ flowchart TD
     VerifyRoute[Asymmetric Verification: /verify] --> LocalDraft[Local Generator: RTX 5090]
     LocalDraft --> CloudCritic[Cloud Critic: Gemini Flash]
     CloudCritic --> ClientStream
+
+    Gateway -. Telemetry .-> HUD[🖥️ Always-On-Top Desktop HUD]
 ```
 
 ---
 
 ## 🚀 Key Features
 
+* **🖥️ Always-On-Top Desktop HUD**: Sleek, frameless, draggable obsidian overlay (`#0b0f19`) that sits above your IDEs next to the clock or anywhere on screen. Displays live routing decisions (🟢 Local Builder, 🟣 Local Architect, 🔵 Asymmetric Verify, 🟠 Gemini Cloud), real-time VRAM gauge (GB, %, °C, W), decision latency (sub-5ms), prompt snippet, dollar savings counter, pin toggle, compact mini-mode, and 1-click mode switcher buttons.
+* **🧠 Local GPU Architectural Reasoning**: True multi-model orchestration on local silicon. System design, race condition, thread safety, and algorithmic queries are dispatched directly to the local reasoning model (`deepseek-r1:14b` or `gemma4:26b`) on the RTX 5090 rather than escaping to cloud tokens. Routine code generation is routed to `qwen2.5-coder:32b`.
 * **Hardware-Adaptive VRAM Sizing**: Automatically profiles your GPU (`nvidia-smi` / Metal / CPU) and assigns the optimal model tier.
 * **Autonomous $0 Offload**: Resolves 85–95% of routine coding, unit tests, refactoring, and QA directly on local VRAM.
 * **Dynamic Token Biasing Engine**:
@@ -229,13 +234,19 @@ CascadeGateway/
 │       │   └── static/
 │       │       ├── css/dashboard.css
 │       │       └── js/dashboard.js
-│       ├── tray/                  # Windows system tray background app
-│       │   └── app.py             # System tray controls, VRAM pause & IDE auto-config
-│       └── mcp/                   # Model Context Protocol stdio & HTTP server
-│           └── server.py          # Antigravity & Claude Desktop integration
+│       ├── hud/                   # Always-On-Top Desktop HUD & Telemetry Overlay
+│       │   ├── __init__.py
+│       │   └── overlay.py         # Tkinter floating dark obsidian window
+│       ├── tray/                  # Windows system tray controller
+│       │   └── app.py             # Pystray background service & menus
+│       ├── mcp/                   # Model Context Protocol endpoints
+│       │   ├── __init__.py
+│       │   └── server.py          # Antigravity & Claude Desktop integration
 ├── scripts/                       # Platform launchers & utilities
 │   ├── start_cascade.bat          # Windows batch launcher
 │   ├── start_tray.vbs             # Silent windowless tray runner
+│   ├── start_hud.bat              # Desktop HUD launcher
+│   ├── start_hud.vbs              # Silent windowless HUD launcher
 │   ├── setup.bat / setup.sh       # One-click installers
 │   └── create_shortcuts.ps1       # Desktop & startup shortcut generator
 ├── tests/                         # Comprehensive automated test suites
@@ -256,6 +267,7 @@ CascadeGateway/
 | :--- | :--- | :--- |
 | `/v1/chat/completions` | `POST` | OpenAI-compatible chat completion endpoint supporting resilient SSE streaming, lookahead failover, loop breaking, and diagnostic headers (`X-Cascade-*`). |
 | `/v1/models` | `GET` | Returns available virtual model aliases (`cascade-auto`, `local-5090`) and physical Ollama models. |
+| `/api/hud/state` | `GET` | **Desktop HUD Telemetry**: Real-time status, active route, model, VRAM used/total, temp (°C), power (W), latency, and dollar savings. |
 | `/api/hardware` | `GET` | Real-time GPU telemetry: VRAM allocation, temperature, power draw (W), and detected hardware tier. |
 | `/api/models/unload` | `POST` | **Instant VRAM Purge ("Pause GPU")**: Evicts loaded models to 0 MB VRAM in <1s for AAA gaming or rendering. |
 | `/api/models/preload` | `POST` | **Warm GPU**: Preloads and pins model into VRAM with indefinite residency (`keep_alive: -1`). |

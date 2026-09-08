@@ -25,6 +25,7 @@ from cascadegateway.core.router import (
     BIASING_STATE,
     WORKFLOW_MODES,
     WORKFLOW_STATE,
+    MODEL_SELECTION_STATE,
     save_persistent_metrics,
     record_request_history,
     calculate_effective_bias,
@@ -49,6 +50,16 @@ app = FastAPI(
     description="Hardware-Adaptive Local LLM & Cloud Cascading Architecture",
     version="2.0.0",
 )
+
+HUD_STATE = {
+    "status": "ready",
+    "route": "Local GPU (Ready)",
+    "model": "qwen2.5-coder:32b",
+    "route_time": "0.00ms",
+    "reason": "System Initialized & Warm in VRAM",
+    "last_query": "Awaiting IDE prompt...",
+    "updated_at": time.strftime("%H:%M:%S")
+}
 
 
 
@@ -169,7 +180,8 @@ async def chat_completions(req: ChatRequest):
 
     ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
     available_local_models = await get_available_ollama_models(ollama_url)
-    best_local_model = select_best_local_model(available_local_models)
+    best_architect_model = resolve_active_model("architect", available_local_models)
+    best_builder_model = resolve_active_model("builder", available_local_models)
 
     # Execute Phase 1 (Structural & Hardware Validation) and Phase 2 (Ultra-Fast Lexical Scan) <5ms
     decision = route_request(
@@ -198,10 +210,35 @@ async def chat_completions(req: ChatRequest):
     if comp_score > 0.85:
         cloud_model = config.get("cloud", {}).get("pro_model", "gemini-2.5-pro")
 
+    target_role = decision.get("target_role", "builder")
+    active_wf = WORKFLOW_STATE.get("active_mode", "architect")
+    if active_wf == "solo":
+        target_local_model = best_builder_model
+        route_display = "local_builder"
+    elif active_wf == "algo" or target_role == "architect" or "architect" in route_target:
+        target_local_model = best_architect_model
+        route_display = "local_architect"
+    else:
+        target_local_model = best_builder_model
+        route_display = "local_builder"
+
+    is_local_route = route_target.startswith("local") or route_target in ("local", "local_builder", "local_architect")
+    chosen_model = target_local_model if is_local_route else cloud_model
+
+    HUD_STATE.update({
+        "status": "streaming" if req.stream else "processing",
+        "route": f"Local Architect ({target_local_model})" if target_role == "architect" else f"Local Builder ({target_local_model})" if is_local_route else "Gemini Cloud",
+        "model": chosen_model,
+        "route_time": f"{round(decision['latency_ms'], 3)}ms",
+        "reason": str(route_reason),
+        "last_query": user_snippet[:120] if user_snippet else "Empty prompt",
+        "updated_at": time.strftime("%H:%M:%S")
+    })
+
     # Diagnostic Routing Headers
     routing_headers = {
-        "X-Cascade-Route": route_target,
-        "X-Cascade-Model": best_local_model if route_target == "local" else cloud_model,
+        "X-Cascade-Route": route_display if is_local_route else "cloud",
+        "X-Cascade-Model": chosen_model,
         "X-Cascade-Decision-MS": str(round(decision["latency_ms"], 3)),
         "X-Cascade-Reason": str(route_reason)
     }
@@ -227,7 +264,7 @@ async def chat_completions(req: ChatRequest):
 
         verify_headers = {
             "X-Cascade-Route": "asymmetric-verification",
-            "X-Cascade-Model": f"{best_local_model}->{cloud_model}",
+            "X-Cascade-Model": f"{target_local_model}->{cloud_model}",
             "X-Cascade-Decision-MS": str(round(decision["latency_ms"], 3)),
             "X-Cascade-Reason": "Asymmetric Consensus (Local Generator + Cloud Critic)",
             "X-Cascade-Pipeline": "asymmetric-verification"
@@ -235,7 +272,7 @@ async def chat_completions(req: ChatRequest):
         if req.stream:
             generator = stream_asymmetric_verification(
                 local_url=ollama_url,
-                local_model=best_local_model,
+                local_model=target_local_model,
                 cloud_model=cloud_model,
                 gemini_api_key=api_key,
                 messages=cleaned_messages,
@@ -247,19 +284,19 @@ async def chat_completions(req: ChatRequest):
 
     # PHASE 3: STREAMING EXECUTION WITH 3-TOKEN LOOKAHEAD BUFFER & FAILOVER
     if req.stream:
-        if route_target == "local" and available_local_models:
+        if is_local_route and available_local_models:
             from cascadegateway.core.streaming import stream_with_lookahead_failover
             # Check if model is currently warm in VRAM
             from cascadegateway.api.models import get_loaded_models
             try:
                 loaded = await get_loaded_models()
-                is_loaded = any(best_local_model in m.get("name", "") for m in loaded)
+                is_loaded = any(target_local_model in m.get("name", "") for m in loaded)
             except Exception:
                 is_loaded = True
 
             generator = stream_with_lookahead_failover(
                 local_url=ollama_url,
-                local_model=best_local_model,
+                local_model=target_local_model,
                 cloud_model=cloud_model,
                 gemini_api_key=api_key,
                 messages=messages,
@@ -288,10 +325,10 @@ async def chat_completions(req: ChatRequest):
         )
 
     # NON-STREAMING EXECUTION WITH LOOKAHEAD FAILOVER
-    if route_target == "local" and available_local_models:
+    if is_local_route and available_local_models:
         try:
             resp = await call_ollama_non_streaming(
-                ollama_url, best_local_model, messages,
+                ollama_url, target_local_model, messages,
                 temperature=req.temperature, max_tokens=req.max_tokens
             )
             duration = time.time() - t0
@@ -299,11 +336,11 @@ async def chat_completions(req: ChatRequest):
             METRICS["local_5090_requests"] += 1
             METRICS["tokens_saved_prompt"] += prompt_tokens
             METRICS["tokens_saved_completion"] += comp_tokens
-            record_request_history(user_snippet, "Local GPU (Validated)", best_local_model, duration, prompt_tokens + comp_tokens, 0)
+            record_request_history(user_snippet, f"Local GPU ({route_display})", target_local_model, duration, prompt_tokens + comp_tokens, 0)
             resp["_routing_info"] = {
-                "tier": "Local GPU (Phase 2 Lexical)",
+                "tier": f"Local GPU ({route_display})",
                 "reason": route_reason,
-                "model": best_local_model,
+                "model": target_local_model,
                 "tokens_saved": prompt_tokens + comp_tokens,
                 "routing_latency_ms": decision["latency_ms"]
             }
@@ -468,6 +505,49 @@ async def get_metrics():
             "description": bias_desc,
         },
         "recent_requests": METRICS.get("recent_requests", [])[:10],
+    }
+
+
+@app.get("/api/hud/state")
+async def get_hud_state_endpoint():
+    gpu = get_gpu_telemetry()
+    dollars = get_estimated_dollars_saved()
+    reqs = METRICS["total_requests"]
+    offload = round((METRICS["local_5090_requests"] / reqs) * 100, 1) if reqs > 0 else 100.0
+    tokens_saved = METRICS["tokens_saved_prompt"] + METRICS["tokens_saved_completion"]
+    return {
+        "status": HUD_STATE.get("status", "ready"),
+        "route": HUD_STATE.get("route", "Local GPU"),
+        "model": HUD_STATE.get("model", "qwen2.5-coder:32b"),
+        "route_time": HUD_STATE.get("route_time", "0.00ms"),
+        "reason": HUD_STATE.get("reason", "Ready"),
+        "last_query": HUD_STATE.get("last_query", "Awaiting query..."),
+        "updated_at": HUD_STATE.get("updated_at", ""),
+        "vram": {
+            "used": gpu.get("vram_used_gb", 0.0),
+            "total": gpu.get("vram_total_gb", 31.8),
+            "percent": gpu.get("vram_percent", 0),
+            "temp": gpu.get("temperature_c", 0),
+            "power": gpu.get("power_draw_w", 0),
+            "name": gpu.get("name", "NVIDIA GeForce RTX 5090")
+        },
+        "savings": {
+            "dollars": dollars,
+            "tokens": tokens_saved // 1000,
+            "tokens_raw": tokens_saved,
+            "cost_basis": "$3.00 per 1M tokens"
+        },
+        "metrics": {
+            "total_requests": reqs,
+            "local_requests": METRICS["local_5090_requests"],
+            "cloud_requests": METRICS["cloud_gemini_requests"],
+            "offload_percent": offload
+        },
+        "workflow": {
+            "active_mode": WORKFLOW_STATE.get("active_mode", "builder"),
+            "architect_model": MODEL_SELECTION_STATE.get("architect", "auto"),
+            "builder_model": MODEL_SELECTION_STATE.get("builder", "auto")
+        }
     }
 
 

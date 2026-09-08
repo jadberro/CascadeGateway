@@ -95,6 +95,16 @@ def open_dashboard(icon, item):
     webbrowser.open("http://127.0.0.1:8000/")
 
 
+def launch_hud_action(icon, item):
+    try:
+        import subprocess
+        venv_pythonw = BASE_DIR / ".venv" / "Scripts" / "pythonw.exe"
+        py_bin = str(venv_pythonw) if venv_pythonw.exists() else sys.executable
+        subprocess.Popen([py_bin, "-m", "cascadegateway.hud.overlay"], cwd=str(BASE_DIR))
+    except Exception as e:
+        icon.notify(f"Failed to launch HUD: {e}", "CascadeGateway")
+
+
 def free_vram_action(icon, item):
     try:
         req = urllib.request.Request(
@@ -245,6 +255,7 @@ def exit_action(icon, item):
 def create_menu():
     return Menu(
         item("CascadeGateway (Port 8000)", lambda icon, item: None, enabled=False),
+        item("🖥️ Open Always-On-Top HUD", launch_hud_action),
         item("Open Web Dashboard", open_dashboard, default=True),
         item("⚡ Auto-Configure Continue / Cursor", auto_configure_ides_action),
         item("🛑 Pause & Free GPU (Unload VRAM)", free_vram_action),

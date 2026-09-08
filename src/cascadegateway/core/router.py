@@ -316,7 +316,14 @@ async def call_ollama_non_streaming(base_url: str, model: str, messages: List[Di
         resp.raise_for_status()
         data = resp.json()
 
-        content = data.get("message", {}).get("content", "")
+        msg = data.get("message", {})
+        content = msg.get("content", "")
+        thinking = msg.get("thinking", "")
+        if not content and thinking:
+            content = f"<think>\n{thinking}\n</think>\n"
+        elif thinking and "<think>" not in content:
+            content = f"<think>\n{thinking}\n</think>\n{content}"
+
         prompt_eval = data.get("prompt_eval_count", count_messages_tokens(messages))
         eval_count = data.get("eval_count", estimate_tokens(content))
 
