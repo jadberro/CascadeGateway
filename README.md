@@ -13,19 +13,35 @@ It automatically detects your GPU hardware and physical VRAM on startup—whethe
 
 ```mermaid
 flowchart TD
-    Client[AI Client: Antigravity / Cursor / Continue.dev / Script] --> Gateway[CascadeGateway :8000/v1]
-    Gateway --> Profiler[Hardware Profiler & VRAM Sizer]
-    Profiler --> TierCheck{Detected VRAM Tier}
-    TierCheck -->|>= 24GB: 5090 / 4090| Tier1[qwen2.5-coder:32b @ 65+ t/s]
-    TierCheck -->|12 - 16GB: 4070 / 4080 / 3080-12GB| Tier2[qwen2.5-coder:14b @ 50+ t/s]
-    TierCheck -->|8 - 10GB: 3080-10GB / 3070| Tier3[qwen2.5-coder:7b @ 90+ t/s]
-    TierCheck -->|< 8GB or CPU| Tier4[qwen2.5-coder:1.5b / 3b]
-    Tier1 --> Biasing[Adaptive Biasing Engine]
-    Tier2 --> Biasing
-    Tier3 --> Biasing
-    Tier4 --> Biasing
-    Biasing -->|Routine Tasks & Coding: $0 Cost| LocalOllama[Local GPU Execution: 85-95% Offload]
-    Biasing -->|Extreme Context >32k or Olympiad Proofs| CloudFrontier[Cloud Fallback: Gemini / OpenAI]
+    Client[AI Client: Cursor / Continue / Antigravity / Aider] -->|HTTP /v1/chat/completions| Gateway[CascadeGateway Proxy :8000]
+    
+    subgraph RoutingEngine ["⚡ 3-Phase Sub-5ms Routing Engine (Avg 0.004ms)"]
+        Phase1{"Phase 1: Structural Guard (<1ms)<br/>• Context > 32k tokens?<br/>• Tool/function calls?<br/>• Turn depth > 12?"}
+        Phase2{"Phase 2: Lexical Automaton (<1ms)<br/>• Pre-compiled regex scan<br/>• Local vs Cloud keywords<br/>• Adaptive/Manual Biasing"}
+        Phase1 -->|Violated| CloudFallback[Cloud Route: Gemini Flash / Pro]
+        Phase1 -->|Passed| Phase2
+        Phase2 -->|Architectural / Distributed| CloudFallback
+        Phase2 -->|Coding / Tests / Routine| LocalBranch[Local GPU Route: RTX 5090 / 4090]
+    end
+
+    subgraph StreamingPipeline ["🛡️ Resilient Lookahead & Verification Pipeline"]
+        LocalBranch --> Lookahead{"Phase 3: 3-Token Lookahead Buffer<br/>• Intercept initial 3 tokens<br/>• Cold-Start Grace Window (6s)<br/>• Stalled / Crashed?"}
+        Lookahead -->|Stalled / Exception| CloudFallback
+        Lookahead -->|Stream Active| LoopBreaker["🔁 Sliding-Window Loop Breaker<br/>(Aborts 2-4 token runaway cycles)"]
+        LoopBreaker --> SSEOut[Stream Chunks to Client]
+        
+        VerifyTrigger{"Asymmetric Verification<br/>(/verify, /critique, or mode)"}
+        VerifyTrigger -->|Candidate Draft ($0)| LocalDraft[Local RTX 5090 Generator]
+        LocalDraft --> CloudCritic[Cloud Gemini Auditor / Critic]
+        CloudCritic --> SSEOut
+    end
+
+    CloudFallback --> SSEOut
+    
+    subgraph LifecycleTelemetry ["💤 Lifecycle & Telemetry"]
+        IdleCheck["15m Inactivity Monitor"] -->|Unload VRAM| SleepMode["Active-Sleep: 0 MB VRAM (Port 8000 Awake)"]
+        Tokens["eval_count Telemetry"] --> SavingsTracker["Dollar Savings: $3.00/1M tokens"]
+    end
 ```
 
 ---
@@ -210,33 +226,53 @@ CascadeGateway/
 │       ├── core/                  # Hardware profiler, model sizing & routing engine
 │       │   ├── config.py          # YAML config & environment loader
 │       │   ├── hardware.py        # GPU VRAM auto-profiling (5090/4090/etc.)
+│       │   ├── classifier.py      # Phase 1 structural validation & Phase 2 regex automaton (<1ms)
+│       │   ├── streaming.py       # Phase 3 lookahead failover, loop breaker & asymmetric audit
 │       │   └── router.py          # Biasing engine, metrics & model resolution
 │       ├── api/                   # Modular FastAPI endpoints
-│       │   ├── server.py          # App initialization & /v1/chat/completions
+│       │   ├── server.py          # App initialization, SSE streaming & /v1/chat/completions
 │       │   ├── pipeline.py        # Architect, Review Gate & Builder endpoints
-│       │   └── models.py          # Game Mode (VRAM purge) & model selection API
-│       ├── web/                   # Clean decoupled web assets
+│       │   └── models.py          # Pause & Free GPU (VRAM purge) & 1-click IDE auto-config
+│       ├── web/                   # Clean decoupled web assets & responsive UI
 │       │   ├── templates/
-│       │   │   └── dashboard.html # Responsive HTML5 dashboard
+│       │   │   └── dashboard.html # Responsive HTML5 dashboard & real-time telemetry
 │       │   └── static/
 │       │       ├── css/dashboard.css
 │       │       └── js/dashboard.js
-│       ├── tray/                  # Windows system tray app
-│       │   └── app.py
-│       └── mcp/                   # Model Context Protocol stdio server
-│           └── server.py
+│       ├── tray/                  # Windows system tray background app
+│       │   └── app.py             # System tray controls, VRAM pause & IDE auto-config
+│       └── mcp/                   # Model Context Protocol stdio & HTTP server
+│           └── server.py          # Antigravity & Claude Desktop integration
 ├── scripts/                       # Platform launchers & utilities
 │   ├── start_cascade.bat          # Windows batch launcher
 │   ├── start_tray.vbs             # Silent windowless tray runner
 │   ├── setup.bat / setup.sh       # One-click installers
 │   └── create_shortcuts.ps1       # Desktop & startup shortcut generator
-├── tests/                         # Automated test suite
-│   └── test_gateway.py            # End-to-end integration tests
+├── tests/                         # Comprehensive automated test suites
+│   ├── test_gateway.py            # End-to-end API integration tests
+│   ├── test_resilience.py         # Sub-5ms SLA, structural validation & lookahead tests
+│   └── test_new_features.py       # Loop breaker, IDE auto-config, dollar savings & /verify tests
 ├── assets/                        # Icons & diagrams
 ├── config.yaml                    # Gateway configuration
 ├── pyproject.toml                 # Modern pip/uv packaging metadata
 └── requirements.txt
 ```
+
+---
+
+## 📡 API Reference
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/v1/chat/completions` | `POST` | OpenAI-compatible chat completion endpoint supporting resilient SSE streaming, lookahead failover, loop breaking, and diagnostic headers (`X-Cascade-*`). |
+| `/v1/models` | `GET` | Returns available virtual model aliases (`cascade-auto`, `local-5090`) and physical Ollama models. |
+| `/api/hardware` | `GET` | Real-time GPU telemetry: VRAM allocation, temperature, power draw (W), and detected hardware tier. |
+| `/api/models/unload` | `POST` | **Instant VRAM Purge ("Pause & Free GPU")**: Evicts loaded models to 0 MB VRAM in <1s for AAA gaming or rendering. |
+| `/api/ide/auto-config` | `POST` | **1-Click IDE Setup**: Injects CascadeGateway configuration into `~/.continue/config.json` and detects Cursor environments. |
+| `/api/workflow/mode` | `POST` | Sets active workflow mode (`architect`, `builder`, `solo`, `verify`, `deep_context`, `math`). |
+| `/metrics` | `GET` | Telemetry: exact hardware token accounting (`eval_count`), local offload percentage, and real-time dollar savings. |
+| `/mcp` | `POST` | Model Context Protocol streamable HTTP endpoint for Google Antigravity and Claude Desktop. |
+| `/` | `GET` | Interactive browser control center, real-time hardware gauges, and prompt workbench. |
 
 ---
 
