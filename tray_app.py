@@ -2,11 +2,15 @@ import sys
 import io
 from pathlib import Path
 
-# Fix pythonw.exe windowless execution: sys.stdout and sys.stderr are None
+class NullWriter:
+    def write(self, s): pass
+    def flush(self): pass
+    def isatty(self): return False
+
 if sys.stdout is None:
-    sys.stdout = io.StringIO()
+    sys.stdout = NullWriter()
 if sys.stderr is None:
-    sys.stderr = io.StringIO()
+    sys.stderr = NullWriter()
 
 SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(SRC_DIR) not in sys.path:

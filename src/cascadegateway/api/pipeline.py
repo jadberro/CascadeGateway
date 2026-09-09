@@ -58,9 +58,13 @@ async def get_workflow_modes():
 
 @router.post("/v1/workflow/mode")
 async def set_workflow_mode(req: WorkflowModeRequest):
-    if req.mode in WORKFLOW_MODES:
-        WORKFLOW_STATE["active_mode"] = req.mode
-        return {"success": True, "active_mode": req.mode, "info": WORKFLOW_MODES[req.mode]}
+    requested = req.mode.lower()
+    target_mode = "solo" if requested == "builder" else requested
+    if target_mode in WORKFLOW_MODES or requested in WORKFLOW_MODES:
+        mode_key = requested if requested in WORKFLOW_MODES else target_mode
+        WORKFLOW_STATE["active_mode"] = mode_key
+        info = WORKFLOW_MODES.get(mode_key, WORKFLOW_MODES.get(target_mode))
+        return {"success": True, "active_mode": mode_key, "info": info}
     raise HTTPException(status_code=400, detail=f"Unknown workflow mode: {req.mode}. Available: {list(WORKFLOW_MODES.keys())}")
 
 

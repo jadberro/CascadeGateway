@@ -205,7 +205,7 @@ async def chat_completions(req: ChatRequest):
 
     target_role = decision.get("target_role", "builder")
     active_wf = WORKFLOW_STATE.get("active_mode", "architect")
-    if active_wf == "solo":
+    if active_wf in ("solo", "builder"):
         target_local_model = best_builder_model
         route_display = "local_builder"
     elif active_wf == "algo" or target_role == "architect" or "architect" in route_target:

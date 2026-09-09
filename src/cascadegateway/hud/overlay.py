@@ -8,11 +8,15 @@ import io
 import os
 from pathlib import Path
 
-# Fix pythonw.exe windowless execution: sys.stdout and sys.stderr are None
+class NullWriter:
+    def write(self, s): pass
+    def flush(self): pass
+    def isatty(self): return False
+
 if sys.stdout is None:
-    sys.stdout = io.StringIO()
+    sys.stdout = NullWriter()
 if sys.stderr is None:
-    sys.stderr = io.StringIO()
+    sys.stderr = NullWriter()
 
 # Ensure src directory is in sys.path regardless of execution method
 SRC_DIR = Path(__file__).resolve().parent.parent.parent
@@ -266,19 +270,35 @@ class CascadeGatewayHUD:
         self.root.destroy()
         sys.exit(0)
 
+    def highlight_mode_buttons(self, mode: str):
+        mode_clean = (mode or "").lower()
+        is_arch = mode_clean == "architect"
+        is_build = mode_clean in ("builder", "solo")
+        is_verify = mode_clean == "verify"
+        self.btn_architect.config(bg="#a855f7" if is_arch else "#1e293b", fg="#ffffff" if is_arch else "#a855f7")
+        self.btn_builder.config(bg="#38bdf8" if is_build else "#1e293b", fg="#ffffff" if is_build else "#38bdf8")
+        self.btn_verify.config(bg="#10b981" if is_verify else "#1e293b", fg="#ffffff" if is_verify else "#10b981")
+
     def switch_mode(self, mode: str):
+        self.highlight_mode_buttons(mode)
+        mode_title = "Builder (Direct 5090)" if mode in ("builder", "solo") else mode.capitalize()
+        self.lbl_reason.config(text=f"⚡ Mode set to {mode_title} - Ready")
+
         def worker():
-            try:
-                req = urllib.request.Request(
-                    f"{API_BASE}/v1/workflow/mode",
-                    data=json.dumps({"mode": mode}).encode(),
-                    headers={"Content-Type": "application/json"},
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=3.0) as resp:
+            targets = [mode, "solo"] if mode == "builder" else [mode]
+            for target in targets:
+                try:
+                    req = urllib.request.Request(
+                        f"{API_BASE}/v1/workflow/mode",
+                        data=json.dumps({"mode": target}).encode(),
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req, timeout=3.0) as resp:
+                        if resp.status == 200:
+                            break
+                except Exception:
                     pass
-            except Exception:
-                pass
         threading.Thread(target=worker, daemon=True).start()
 
     def warm_gpu(self):
@@ -457,9 +477,7 @@ class CascadeGatewayHUD:
 
         # Highlight Active Mode Button
         active_mode = workflow.get("active_mode", "builder")
-        self.btn_architect.config(bg="#a855f7" if active_mode == "architect" else "#1e293b", fg="#ffffff" if active_mode == "architect" else "#a855f7")
-        self.btn_builder.config(bg="#38bdf8" if active_mode == "builder" else "#1e293b", fg="#ffffff" if active_mode == "builder" else "#38bdf8")
-        self.btn_verify.config(bg="#10b981" if active_mode == "verify" else "#1e293b", fg="#ffffff" if active_mode == "verify" else "#10b981")
+        self.highlight_mode_buttons(active_mode)
 
 
 def main():

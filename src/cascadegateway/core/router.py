@@ -58,9 +58,15 @@ BIASING_STATE = {
 
 WORKFLOW_MODES = {
     "solo": {
-        "name": "Solo Sprint",
+        "name": "Solo Sprint (Builder)",
         "description": "Direct high-speed local code generation via Qwen 2.5 Coder 32B ($0 token cost).",
-        "icon": "🚀",
+        "icon": "⚡",
+        "has_gate": False
+    },
+    "builder": {
+        "name": "Direct Builder (Qwen 32B)",
+        "description": "Direct high-speed local code generation via Qwen 2.5 Coder 32B ($0 token cost).",
+        "icon": "⚡",
         "has_gate": False
     },
     "architect": {

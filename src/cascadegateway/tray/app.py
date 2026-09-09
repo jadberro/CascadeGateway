@@ -7,11 +7,15 @@ Allows live control of Biasing Modes, Model Selection, Startup on Boot, Game Mod
 import sys
 import io
 
-# Fix pythonw.exe windowless execution: sys.stdout and sys.stderr are None
+class NullWriter:
+    def write(self, s): pass
+    def flush(self): pass
+    def isatty(self): return False
+
 if sys.stdout is None:
-    sys.stdout = io.StringIO()
+    sys.stdout = NullWriter()
 if sys.stderr is None:
-    sys.stderr = io.StringIO()
+    sys.stderr = NullWriter()
 
 import os
 import time

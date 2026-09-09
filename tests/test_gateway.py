@@ -120,6 +120,37 @@ def test_metrics_endpoint():
         return False
 
 
+def test_builder_mode_switching():
+    print("\n--- 7. Testing Builder & Solo Mode Switching ---")
+    valid_modes = {"builder", "solo"}
+    try:
+        # Step 1: Switch to builder mode
+        resp = httpx.post(f"{BASE_URL}/v1/workflow/mode", json={"mode": "builder"}, timeout=5.0)
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        data = resp.json()
+        assert data.get("success") is True
+        assert data.get("active_mode") in valid_modes
+        print(f"Builder Mode set: {data.get('active_mode')}")
+
+        # Step 2: Switch to solo mode
+        resp = httpx.post(f"{BASE_URL}/v1/workflow/mode", json={"mode": "solo"}, timeout=5.0)
+        assert resp.status_code == 200
+        print("Solo Mode set successfully.")
+
+        # Step 3: Verify HUD state
+        resp = httpx.get(f"{BASE_URL}/api/hud/state", timeout=5.0)
+        assert resp.status_code == 200
+        hud_data = resp.json()
+        active = hud_data.get("workflow", {}).get("active_mode")
+        assert active in valid_modes
+        print(f"HUD State confirmed active_mode: {active}")
+        print("PASS: Builder & Solo mode switching verified.")
+        return True
+    except Exception as e:
+        print(f"FAIL: {e}")
+        return False
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("  CascadeGateway Verification Test Suite")
@@ -133,4 +164,5 @@ if __name__ == "__main__":
     test_workflow_modes_endpoint()
     test_simple_prompt_local_routing()
     test_metrics_endpoint()
+    test_builder_mode_switching()
     print("\nAll gateway tests PASSED!")
