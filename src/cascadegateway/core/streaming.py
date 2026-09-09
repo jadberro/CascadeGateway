@@ -16,6 +16,7 @@ import httpx
 from cascadegateway.core.config import config
 from cascadegateway.core.router import (
     METRICS,
+    HUD_STATE,
     record_request_history,
     count_messages_tokens,
     save_persistent_metrics
@@ -292,6 +293,7 @@ async def stream_with_lookahead_failover(
         yield make_openai_sse_chunk(chunk_id, f"local:{local_model}", "", finish_reason="stop")
         yield "data: [DONE]\n\n"
     finally:
+        HUD_STATE.update({"status": "ready", "updated_at": time.strftime("%H:%M:%S")})
         # Guarantees background task and HTTP client are cleaned up on client disconnect
         if not producer_task.done():
             producer_task.cancel()
@@ -393,3 +395,4 @@ async def stream_asymmetric_verification(
         f"{local_model} -> {cloud_model}", duration,
         prompt_toks + draft_comp_tokens, cloud_tokens_emitted
     )
+    HUD_STATE.update({"status": "ready", "updated_at": time.strftime("%H:%M:%S")})

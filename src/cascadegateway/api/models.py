@@ -12,10 +12,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+import time
 from cascadegateway.core.config import config
 from cascadegateway.core.hardware import HARDWARE_INFO, get_gpu_telemetry
 from cascadegateway.core.router import (
     MODEL_SELECTION_STATE,
+    HUD_STATE,
     get_available_ollama_models,
     resolve_active_model,
     select_best_local_model,
@@ -105,6 +107,13 @@ async def unload_models_endpoint(req: Optional[UnloadModelRequest] = None):
     else:
         to_unload = [m.get("name") for m in loaded_models if m.get("name")]
 
+    HUD_STATE.update({
+        "status": "unloading",
+        "route": "Clearing VRAM",
+        "reason": "Unloading local models from VRAM for gaming/3D rendering...",
+        "updated_at": time.strftime("%H:%M:%S")
+    })
+
     unloaded = []
     async with httpx.AsyncClient(timeout=10.0) as client:
         for m_name in to_unload:
@@ -119,6 +128,12 @@ async def unload_models_endpoint(req: Optional[UnloadModelRequest] = None):
                 pass
 
     gpu = get_gpu_telemetry()
+    HUD_STATE.update({
+        "status": "paused",
+        "route": "GPU Cleared (0MB VRAM)",
+        "reason": "VRAM freed for gaming/3D. Press Warm to reload.",
+        "updated_at": time.strftime("%H:%M:%S")
+    })
     return {
         "success": True,
         "unloaded_models": unloaded,
@@ -139,6 +154,14 @@ async def preload_models_endpoint(req: Optional[Dict[str, Any]] = None):
     if not target_model:
         return {"success": False, "error": "No local model available to preload."}
 
+    HUD_STATE.update({
+        "status": "warming",
+        "route": f"Warming {target_model}",
+        "model": target_model,
+        "reason": f"Pinning {target_model} into RTX 5090 VRAM...",
+        "updated_at": time.strftime("%H:%M:%S")
+    })
+
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
@@ -147,6 +170,13 @@ async def preload_models_endpoint(req: Optional[Dict[str, Any]] = None):
             )
             if resp.status_code == 200:
                 gpu = get_gpu_telemetry()
+                HUD_STATE.update({
+                    "status": "ready",
+                    "route": f"Local 5090 ({target_model})",
+                    "model": target_model,
+                    "reason": f"Warmed & Resident in VRAM (0-delay ready)",
+                    "updated_at": time.strftime("%H:%M:%S")
+                })
                 return {
                     "success": True,
                     "model": target_model,
@@ -154,9 +184,21 @@ async def preload_models_endpoint(req: Optional[Dict[str, Any]] = None):
                     "vram_used_gb": gpu.get("vram_used_gb", 0),
                     "vram_percent": gpu.get("vram_percent", 0)
                 }
-            return {"success": False, "error": f"Ollama returned status {resp.status_code}"}
+            err_msg = f"Ollama returned status {resp.status_code}"
+            HUD_STATE.update({
+                "status": "error",
+                "reason": f"Preload failed: {err_msg}",
+                "updated_at": time.strftime("%H:%M:%S")
+            })
+            return {"success": False, "error": err_msg}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        err_msg = str(e)
+        HUD_STATE.update({
+            "status": "error",
+            "reason": f"Preload failed: {err_msg}",
+            "updated_at": time.strftime("%H:%M:%S")
+        })
+        return {"success": False, "error": err_msg}
 
 
 @router.get("/api/models/selection")

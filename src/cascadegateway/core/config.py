@@ -65,6 +65,7 @@ def acquire_single_instance_lock() -> bool:
     # 2. Cross-Platform Local Sentinel Port
     try:
         _sentinel_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _sentinel_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         _sentinel_socket.bind(("127.0.0.1", SENTINEL_PORT))
     except OSError:
         already_running = True

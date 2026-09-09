@@ -51,6 +51,7 @@ class CascadeGatewayHUD:
 
         self.data_queue = queue.Queue()
         self.stop_event = threading.Event()
+        self.action_lock = False
 
         self.setup_styles()
         self.build_ui()
@@ -281,7 +282,11 @@ class CascadeGatewayHUD:
         threading.Thread(target=worker, daemon=True).start()
 
     def warm_gpu(self):
-        self.lbl_reason.config(text="Warming up GPU and pinning weights into VRAM...")
+        self.action_lock = True
+        self.btn_warm.config(text="⏳ Warming...", bg="#d97706", fg="#ffffff", state=tk.DISABLED)
+        self.status_pill.config(text="● PRELOADING VRAM", bg="#d97706", fg="#ffffff")
+        self.lbl_reason.config(text="⚡ Pinning model weights into RTX 5090 VRAM...")
+
         def worker():
             try:
                 req = urllib.request.Request(
@@ -290,14 +295,20 @@ class CascadeGatewayHUD:
                     headers={"Content-Type": "application/json"},
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=60.0) as resp:
-                    pass
-            except Exception:
-                pass
+                with urllib.request.urlopen(req, timeout=120.0) as resp:
+                    data = json.loads(resp.read().decode())
+                    self.data_queue.put(("warm_done", data))
+            except Exception as e:
+                self.data_queue.put(("warm_done", {"success": False, "error": str(e)}))
+
         threading.Thread(target=worker, daemon=True).start()
 
     def pause_gpu(self):
-        self.lbl_reason.config(text="Unloading VRAM to 0MB for games/3D rendering...")
+        self.action_lock = True
+        self.btn_pause.config(text="⏳ Freeing...", bg="#d97706", fg="#ffffff", state=tk.DISABLED)
+        self.status_pill.config(text="● UNLOADING VRAM", bg="#d97706", fg="#ffffff")
+        self.lbl_reason.config(text="🎮 Unloading models from VRAM for gaming/3D rendering...")
+
         def worker():
             try:
                 req = urllib.request.Request(
@@ -306,10 +317,12 @@ class CascadeGatewayHUD:
                     headers={"Content-Type": "application/json"},
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=10.0) as resp:
-                    pass
-            except Exception:
-                pass
+                with urllib.request.urlopen(req, timeout=15.0) as resp:
+                    data = json.loads(resp.read().decode())
+                    self.data_queue.put(("pause_done", data))
+            except Exception as e:
+                self.data_queue.put(("pause_done", {"success": False, "error": str(e)}))
+
         threading.Thread(target=worker, daemon=True).start()
 
     def poll_gateway_worker(self):
@@ -330,10 +343,38 @@ class CascadeGatewayHUD:
             while not self.data_queue.empty():
                 kind, payload = self.data_queue.get_nowait()
                 if kind == "offline":
-                    self.status_pill.config(text="● OFFLINE", bg="#475569", fg="#f8fafc")
-                    self.lbl_reason.config(text="CascadeGateway port 8000 unreachable")
+                    if not self.action_lock:
+                        self.status_pill.config(text="● OFFLINE", bg="#475569", fg="#f8fafc")
+                        self.lbl_reason.config(text="CascadeGateway port 8000 unreachable")
                 elif kind == "data":
                     self.apply_telemetry_update(payload)
+                elif kind == "warm_done":
+                    if payload.get("success"):
+                        model = payload.get("model", "qwen2.5-coder:32b")
+                        self.btn_warm.config(text="✅ Warmed!", bg="#10b981", fg="#ffffff", state=tk.NORMAL)
+                        self.status_pill.config(text="● WARM & PINNED", bg="#059669", fg="#ffffff")
+                        self.lbl_reason.config(text=f"⚡ {model} resident in VRAM. Ready for 0-wait inference!")
+                        self.action_lock = False
+                        self.root.after(3000, lambda: self.btn_warm.config(text="▶️ Warm", bg="#1e293b", fg="#e2e8f0"))
+                    else:
+                        err = payload.get("error", "Preload failed")
+                        self.btn_warm.config(text="❌ Failed", bg="#dc2626", fg="#ffffff", state=tk.NORMAL)
+                        self.lbl_reason.config(text=f"Preload failed: {err}")
+                        self.action_lock = False
+                        self.root.after(4000, lambda: self.btn_warm.config(text="▶️ Warm", bg="#1e293b", fg="#e2e8f0"))
+                elif kind == "pause_done":
+                    if payload.get("success"):
+                        self.btn_pause.config(text="✅ Freed!", bg="#10b981", fg="#ffffff", state=tk.NORMAL)
+                        self.status_pill.config(text="● GPU FREED", bg="#475569", fg="#ffffff")
+                        self.lbl_reason.config(text="🎮 VRAM cleared (0 MB). Full GPU power available for games.")
+                        self.action_lock = False
+                        self.root.after(3000, lambda: self.btn_pause.config(text="🛑 Pause", bg="#1e293b", fg="#ef4444"))
+                    else:
+                        err = payload.get("error", "Unload failed")
+                        self.btn_pause.config(text="❌ Failed", bg="#dc2626", fg="#ffffff", state=tk.NORMAL)
+                        self.lbl_reason.config(text=f"Unload failed: {err}")
+                        self.action_lock = False
+                        self.root.after(4000, lambda: self.btn_pause.config(text="🛑 Pause", bg="#1e293b", fg="#ef4444"))
         except queue.Empty:
             pass
 
@@ -349,23 +390,37 @@ class CascadeGatewayHUD:
         savings = data.get("savings", {})
         workflow = data.get("workflow", {})
 
-        # Color-coded Status Pill
-        if "architect" in route.lower():
-            self.status_pill.config(text="● ARCHITECT (R1)", bg="#a855f7", fg="#ffffff")
-            self.lbl_model_val.config(text=f"{model} [Local CoT]", fg="#c084fc")
-        elif "verify" in route.lower() or "consensus" in route.lower():
-            self.status_pill.config(text="● ASYMMETRIC VERIFY", bg="#0284c7", fg="#ffffff")
-            self.lbl_model_val.config(text=f"{model} [5090->Cloud]", fg="#38bdf8")
-        elif "cloud" in route.lower() or "gemini" in route.lower():
-            self.status_pill.config(text="● GEMINI CLOUD", bg="#d97706", fg="#ffffff")
-            self.lbl_model_val.config(text=f"{model} [Cloud Fallback]", fg="#f59e0b")
-        else:
-            self.status_pill.config(text="● LOCAL 5090", bg="#059669", fg="#ffffff")
-            self.lbl_model_val.config(text=f"{model} [Builder]", fg="#34d399")
+        # Color-coded Status Pill (Skip if action_lock is active)
+        if not getattr(self, "action_lock", False):
+            if status == "streaming":
+                self.status_pill.config(text="● STREAMING (5090)", bg="#06b6d4", fg="#ffffff")
+                self.lbl_model_val.config(text=f"{model} [Active Stream]", fg="#38bdf8")
+            elif status == "processing":
+                self.status_pill.config(text="● PROCESSING", bg="#f59e0b", fg="#ffffff")
+                self.lbl_model_val.config(text=f"{model} [Prompt Eval]", fg="#fbbf24")
+            elif status == "warming":
+                self.status_pill.config(text="● WARMING VRAM", bg="#d97706", fg="#ffffff")
+            elif status == "unloading":
+                self.status_pill.config(text="● FREEING VRAM", bg="#d97706", fg="#ffffff")
+            elif status == "paused":
+                self.status_pill.config(text="● GPU PAUSED", bg="#475569", fg="#ffffff")
+                self.lbl_model_val.config(text="GPU Cleared (0 MB)", fg="#94a3b8")
+            elif "architect" in route.lower():
+                self.status_pill.config(text="● ARCHITECT (5090)", bg="#a855f7", fg="#ffffff")
+                self.lbl_model_val.config(text=f"{model} [Local CoT]", fg="#c084fc")
+            elif "verify" in route.lower() or "consensus" in route.lower():
+                self.status_pill.config(text="● ASYMMETRIC VERIFY", bg="#0284c7", fg="#ffffff")
+                self.lbl_model_val.config(text=f"{model} [5090->Cloud]", fg="#38bdf8")
+            elif "cloud" in route.lower() or "gemini" in route.lower():
+                self.status_pill.config(text="● GEMINI CLOUD", bg="#d97706", fg="#ffffff")
+                self.lbl_model_val.config(text=f"{model} [Cloud Fallback]", fg="#f59e0b")
+            else:
+                self.status_pill.config(text="● LOCAL 5090", bg="#059669", fg="#ffffff")
+                self.lbl_model_val.config(text=f"{model} [Builder]", fg="#34d399")
 
-        # Routing Reason & Latency
-        route_time = data.get("route_time", "0ms")
-        self.lbl_reason.config(text=f"[{route_time}] {reason}")
+            # Routing Reason & Latency
+            route_time = data.get("route_time", "0ms")
+            self.lbl_reason.config(text=f"[{route_time}] {reason}")
 
         # Query Snippet
         if last_query:

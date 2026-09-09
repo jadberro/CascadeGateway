@@ -99,6 +99,16 @@ WORKFLOW_STATE = {
     "active_mode": "architect"
 }
 
+HUD_STATE = {
+    "status": "ready",
+    "route": "Local GPU (Ready)",
+    "model": "qwen2.5-coder:32b",
+    "route_time": "0.00ms",
+    "reason": "System Initialized & Warm in VRAM",
+    "last_query": "Awaiting IDE prompt...",
+    "updated_at": time.strftime("%H:%M:%S")
+}
+
 ARCHITECT_SYSTEM_PROMPT = """You are a Principal Systems Architect and Staff Software Engineer.
 Your goal is to design a robust, maintainable, high-performance architectural blueprint for the user's request BEFORE any code is written.
 
@@ -138,6 +148,13 @@ MODEL_SELECTION_STATE = {
 
 
 def select_architect_model(installed_models: List[str]) -> str:
+    # On single-GPU systems (<=32GB VRAM), prioritize keeping the primary 32B model resident
+    # to avoid 28GB VRAM evictions and 30-second SSD reload freezes on every task switch.
+    primary = config.get("local", {}).get("primary_model")
+    if primary and any(primary in m for m in installed_models):
+        for m in installed_models:
+            if primary in m:
+                return m
     for m in installed_models:
         if "deepseek-r1" in m.lower():
             return m

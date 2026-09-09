@@ -36,6 +36,7 @@ from cascadegateway.core.router import (
     get_available_ollama_models,
     call_ollama_non_streaming,
     call_gemini_non_streaming,
+    HUD_STATE,
     get_estimated_dollars_saved,
 )
 from cascadegateway.core.classifier import route_request
@@ -51,15 +52,7 @@ app = FastAPI(
     version="2.0.0",
 )
 
-HUD_STATE = {
-    "status": "ready",
-    "route": "Local GPU (Ready)",
-    "model": "qwen2.5-coder:32b",
-    "route_time": "0.00ms",
-    "reason": "System Initialized & Warm in VRAM",
-    "last_query": "Awaiting IDE prompt...",
-    "updated_at": time.strftime("%H:%M:%S")
-}
+
 
 
 
