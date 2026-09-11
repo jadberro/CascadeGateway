@@ -7,34 +7,34 @@
 [![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI_Compatible-green.svg)](https://platform.openai.com)
 [![Protocol](https://img.shields.io/badge/MCP-Protocol_2024--11--05-orange.svg)](https://modelcontextprotocol.io)
 
-**CascadeGateway** is an intelligent, hardware-adaptive cascading proxy that routes AI queries between local GPUs (via Ollama at **$0 token cost**) and frontier cloud models (Google Gemini, OpenAI, etc.). 
+**CascadeGateway** is an intelligent, hardware-adaptive cascading proxy that routes AI queries between local GPUs (via Ollama at **$0 token cost**) and frontier cloud models (Google Gemini, OpenAI, etc.).
 
 It automatically detects your GPU hardware and physical VRAM on startup—whether running a flagship **RTX 5090 (32GB)**, **RTX 4090 (24GB)**, mainstream **RTX 3080 (10GB)**, or Apple Silicon—and dynamically selects and sizes the optimal models without requiring manual reconfiguration.
 
 ```mermaid
 flowchart TD
-    Client[AI Client: Cursor / Continue / Antigravity] --> Gateway[CascadeGateway :8000/v1]
-    
-    Gateway --> Phase1{Phase 1: Structural Guard}
-    Phase1 -->|Context > 32k or Tools| CloudFallback[Cloud Fallback: Gemini]
-    Phase1 -->|Passed| Phase2{Phase 2: Lexical Automaton <1ms}
-    
-    Phase2 -->|Architecture / Reasoning| LocalArchitect[Local Architect: DeepSeek-R1 / Gemma 4 (RTX 5090)]
-    Phase2 -->|Coding / Tests / Routine| LocalBuilder[Local Builder: Qwen 2.5 Coder 32B (RTX 5090)]
-    
-    LocalArchitect --> Phase3{Phase 3: 3-Token Lookahead}
+    Client["AI Client: Cursor / Continue / Antigravity"] --> Gateway["CascadeGateway :8000/v1"]
+
+    Gateway --> Phase1{"Phase 1: Structural Guard"}
+    Phase1 -->|"Context > 32k or Tools"| CloudFallback["Cloud Fallback: Gemini"]
+    Phase1 -->|"Passed"| Phase2{"Phase 2: Lexical Automaton &lt;1ms"}
+
+    Phase2 -->|"Architecture / Reasoning"| LocalArchitect["Local Architect: DeepSeek-R1 / Gemma 4 (RTX 5090)"]
+    Phase2 -->|"Coding / Tests / Routine"| LocalBuilder["Local Builder: Qwen 2.5 Coder 32B (RTX 5090)"]
+
+    LocalArchitect --> Phase3{"Phase 3: 3-Token Lookahead"}
     LocalBuilder --> Phase3
-    Phase3 -->|Stalled / Timeout| CloudFallback
-    Phase3 -->|Healthy Stream| LoopBreaker[Sliding-Window Loop Breaker]
-    LoopBreaker --> ClientStream[SSE Stream to Client]
-    
+    Phase3 -->|"Stalled / Timeout"| CloudFallback
+    Phase3 -->|"Healthy Stream"| LoopBreaker["Sliding-Window Loop Breaker"]
+    LoopBreaker --> ClientStream["SSE Stream to Client"]
+
     CloudFallback --> ClientStream
-    
-    VerifyRoute[Asymmetric Verification: /verify] --> LocalDraft[Local Generator: RTX 5090]
-    LocalDraft --> CloudCritic[Cloud Critic: Gemini Flash]
+
+    VerifyRoute["Asymmetric Verification: /verify"] --> LocalDraft["Local Generator: RTX 5090"]
+    LocalDraft --> CloudCritic["Cloud Critic: Gemini Flash"]
     CloudCritic --> ClientStream
 
-    Gateway -. Telemetry .-> HUD[🖥️ Always-On-Top Desktop HUD]
+    Gateway -. Telemetry .-> HUD["🖥️ Always-On-Top Desktop HUD"]
 ```
 
 ---
@@ -50,20 +50,20 @@ flowchart TD
   * **Manual Slider**: Fine-tune local preference from 0% (Quality First) to 100% (Maximum Local Offload).
   * **Strict Local**: 100% execution on local VRAM with automatic cloud overflow only if context exceeds physical limit.
 * **🧠 Multi-Task Workflow Modes & Interactive Review Gate**:
-  * **🧠 Architect & Builder**: Reasoning model drafts architecture, data contracts, and edge cases $\rightarrow$ Pauses at a **Human Review Gate** $\rightarrow$ You approve or refine $\rightarrow$ Builder synthesizes production code.
+  * **🧠 Architect & Builder**: Reasoning model drafts architecture, data contracts, and edge cases → Pauses at a **Human Review Gate** → You approve or refine → Builder synthesizes production code.
   * **🚀 Solo Sprint**: Instant local coding via `qwen2.5-coder:32b` for quick functions, tests, and scripts.
-  * **🌐 Deep Context**: Gemini 2.5 Flash ingests massive repository files (1M context) $\rightarrow$ modular execution on local 5090.
+  * **🌐 Deep Context**: Gemini 2.5 Flash ingests massive repository files (1M context) → modular execution on local 5090.
   * **🔬 Math & Algo Proof**: Deep Chain-of-Thought formal verification for cryptography and concurrency algorithms.
   * **🛡️ Asymmetric Verification (`/verify`)**: High-speed local draft synthesis on RTX 5090 ($0) combined with an anonymous strict cloud auditor (Gemini) providing production-grade critique and code enhancement without leaking full history.
-* **🛡️ Sub-5ms Intelligent Routing & 3-Token Lookahead Failover**: Three-phase classification pipeline: Phase 1 Structural & VRAM Budget Validation (<1ms, prevents swapping to system RAM), Phase 2 Single-Pass Lexical Scan (<1ms), and Phase 3 Resilient Streaming with an in-memory 3-token lookahead buffer that transparently replays stalled local requests to Gemini Cloud without dropping client connections or throwing IDE error popups.
-* **🔁 Anti-Hallucination Sliding-Window Loop Breaker**: In-flight ring buffer tracking token emission sequences (lengths 2, 3, 4 repeated $\ge 4\times$), terminating runaway generative loops immediately.
+* **🛡️ Sub-5ms Intelligent Routing & 3-Token Lookahead Failover**: Three-phase classification pipeline: Phase 1 Structural & VRAM Budget Validation (&lt;1ms, prevents swapping to system RAM), Phase 2 Single-Pass Lexical Scan (&lt;1ms), and Phase 3 Resilient Streaming with an in-memory 3-token lookahead buffer that transparently replays stalled local requests to Gemini Cloud without dropping client connections or throwing IDE error popups.
+* **🔁 Anti-Hallucination Sliding-Window Loop Breaker**: In-flight ring buffer tracking token emission sequences (lengths 2, 3, 4 repeated ≥ 4×), terminating runaway generative loops immediately.
 * **⚡ 1-Click IDE Auto-Configuration**: Automated zero-friction setup endpoint (`/api/ide/auto-config`) and UI button for VSCode Continue (`~/.continue/config.json`) and Cursor.
 * **💰 Zero-Surprise Dollar Savings Telemetry**: Hardware-native token accounting (`eval_count`) calculating real-time dollar savings based on commercial frontier rates ($3.00/1M tokens).
 * **⚡ Persistent GPU VRAM Residency & Zero-Cold-Start**: Models remain permanently resident in GPU VRAM (`keep_alive: -1`) across idle periods and tasks, ensuring instant zero-delay responses. Includes manual 1-Click **"Pause GPU"** (instant VRAM purge for AAA gaming) and **"Warm GPU"** (preloads weights into VRAM).
 * **Native Model Context Protocol (MCP)**: Exposes a high-performance Streamable HTTP and Stdio MCP endpoint for **Google Antigravity** and **Claude Desktop**.
 * **🎛️ Dynamic Model Selection**: Select any installed local model for both the **Architect** role (`deepseek-r1:14b`, `gemma4:26b`, etc.) and the **Builder** role (`qwen2.5-coder:32b`, etc.) directly from the Web UI toolbar or Windows Tray submenus. Automatically detects newly pulled models from Ollama without restarting the gateway.
 * **Zero-Window Background Tray App**: Runs silently in the system tray, boots with Windows/Linux, and includes single-instance mutex protection.
-* **🎮 1-Click Pause & Free GPU (Instant VRAM Purge)**: Evicts loaded models from VRAM in <1s via a dedicated button on the Web UI, Windows Tray, or `POST /api/models/unload`. Frees 20–30+ GB of VRAM immediately for AAA gaming, Blender, or video editing without terminating the server. Models reload automatically on demand when coding.
+* **🎮 1-Click Pause & Free GPU (Instant VRAM Purge)**: Evicts loaded models from VRAM in &lt;1s via a dedicated button on the Web UI, Windows Tray, or `POST /api/models/unload`. Frees 20–30+ GB of VRAM immediately for AAA gaming, Blender, or video editing without terminating the server. Models reload automatically on demand when coding.
 * **Live Hardware Telemetry**: In-browser control center showing real-time VRAM allocation, GPU power draw (W), temperature (°C), lifetime token savings, and an interactive prompt runner.
 * **Standard OpenAI-Compatible API**: Seamless drop-in replacement (`/v1/chat/completions`) for Cursor, VSCode (Continue.dev), Aider, Claude Dev, and custom scripts.
 
@@ -75,25 +75,25 @@ flowchart TD
 sequenceDiagram
     autonumber
     actor Dev as You (Developer)
-    participant Arch as 🧠 Architect (DeepSeek-R1 / Gemma 4)
-    participant Gate as 🛑 Review Gate (You in the Loop)
-    participant Build as ⚡ Builder (Qwen 2.5 Coder 32B)
+    participant Arch as 🧠 Architect - DeepSeek-R1 / Gemma 4
+    participant Gate as 🛑 Review Gate - You in the Loop
+    participant Build as ⚡ Builder - Qwen 2.5 Coder 32B
 
     Dev->>Arch: "Add rate-limiting and burst protection to API routes"
     Note over Arch: Deep CoT: Identifies race conditions,<br/>evaluates Redis vs in-memory,<br/>drafts interface contracts.
     Arch->>Gate: Presents Architectural Blueprint + Edge Cases
     Note over Gate: PAUSE: No code written yet.<br/>You review the proposed interfaces & strategy.
-    
+
     alt If you want adjustments
         Dev->>Gate: "Use Redis, and add IPv6 CIDR subnet matching"
-        Gate->>Arch: Quick amendment (100 tokens)
+        Gate->>Arch: Quick amendment - 100 tokens
         Arch->>Gate: Updated spec
     end
 
     Dev->>Gate: "Approve & Build"
     Gate->>Build: Sends final structured specification
-    Note over Build: Zero ambiguity.<br/>High-speed code synthesis (70 t/s).
-    Build-->>Dev: Delivers complete implementation + unit tests ($0 Cost)
+    Note over Build: Zero ambiguity.<br/>High-speed code synthesis - 70 t/s.
+    Build-->>Dev: Delivers complete implementation + unit tests - $0 Cost
 ```
 
 ---
@@ -105,7 +105,7 @@ sequenceDiagram
 | **Tier 1 (Flagship)** | RTX 5090, 4090, 3090, A6000 | **24 GB – 32 GB** | `qwen2.5-coder:32b` | `gemma4:26b` / `deepseek-r1:32b` | **60 – 75+ tokens/sec** |
 | **Tier 2 (Enthusiast)** | RTX 4080, 4070 Ti, 4070, 3080 12GB | **12 GB – 16 GB** | `qwen2.5-coder:14b` | `mistral-small:22b-q4` | **45 – 55+ tokens/sec** |
 | **Tier 3 (Mainstream)** | RTX 3080 10GB, 3070, 4060 Ti, 2080 Ti | **8 GB – 10 GB** | `qwen2.5-coder:7b` | `llama3.1:8b` | **85 – 100+ tokens/sec** |
-| **Tier 4 (Entry / CPU)** | RTX 3050, 4060 laptop, Apple Silicon, CPU | **< 8 GB** | `qwen2.5-coder:1.5b` / `3b` | `llama3.2:3b` | **40 – 70 tokens/sec** |
+| **Tier 4 (Entry / CPU)** | RTX 3050, 4060 laptop, Apple Silicon, CPU | **&lt; 8 GB** | `qwen2.5-coder:1.5b` / `3b` | `llama3.2:3b` | **40 – 70 tokens/sec** |
 
 ---
 
@@ -269,7 +269,7 @@ CascadeGateway/
 | `/v1/models` | `GET` | Returns available virtual model aliases (`cascade-auto`, `local-5090`) and physical Ollama models. |
 | `/api/hud/state` | `GET` | **Desktop HUD Telemetry**: Real-time status, active route, model, VRAM used/total, temp (°C), power (W), latency, and dollar savings. |
 | `/api/hardware` | `GET` | Real-time GPU telemetry: VRAM allocation, temperature, power draw (W), and detected hardware tier. |
-| `/api/models/unload` | `POST` | **Instant VRAM Purge ("Pause GPU")**: Evicts loaded models to 0 MB VRAM in <1s for AAA gaming or rendering. |
+| `/api/models/unload` | `POST` | **Instant VRAM Purge ("Pause GPU")**: Evicts loaded models to 0 MB VRAM in &lt;1s for AAA gaming or rendering. |
 | `/api/models/preload` | `POST` | **Warm GPU**: Preloads and pins model into VRAM with indefinite residency (`keep_alive: -1`). |
 | `/api/ide/auto-config` | `POST` | **1-Click IDE Setup**: Injects CascadeGateway configuration into `~/.continue/config.json` and detects Cursor environments. |
 | `/api/workflow/mode` | `POST` | Sets active workflow mode (`architect`, `builder`, `solo`, `verify`, `deep_context`, `math`). |
