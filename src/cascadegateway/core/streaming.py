@@ -151,8 +151,51 @@ async def stream_with_lookahead_failover(
     hardware_eval_stats: Dict[str, Any] = {}
 
     async def local_producer(client: httpx.AsyncClient):
+        from cascadegateway.core.router import probe_and_resolve_local_backend
+        backend = await probe_and_resolve_local_backend()
+        target_url = backend["base_url"]
+        api_format = backend["api_format"]
+
         try:
-            async with client.stream("POST", f"{local_url}/api/chat", json=ollama_payload) as resp:
+            if api_format == "openai":
+                openai_payload = {
+                    "model": local_model,
+                    "messages": messages,
+                    "stream": True,
+                    "temperature": temperature,
+                }
+                if max_tokens:
+                    openai_payload["max_tokens"] = max_tokens
+
+                async with client.stream("POST", f"{target_url}/v1/chat/completions", json=openai_payload) as resp:
+                    if resp.status_code != 200:
+                        error_container["error"] = f"HTTP {resp.status_code}"
+                        producer_error.set()
+                        return
+
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        line_str = line.strip()
+                        if line_str.startswith("data: "):
+                            data_str = line_str[6:].strip()
+                            if data_str == "[DONE]":
+                                await token_queue.put(None)
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                choices = chunk.get("choices", [])
+                                if choices:
+                                    delta = choices[0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    if content:
+                                        await token_queue.put(content)
+                            except Exception:
+                                continue
+                return
+
+            # Native Ollama stream (/api/chat)
+            async with client.stream("POST", f"{target_url}/api/chat", json=ollama_payload) as resp:
                 if resp.status_code != 200:
                     error_container["error"] = f"HTTP {resp.status_code}"
                     producer_error.set()

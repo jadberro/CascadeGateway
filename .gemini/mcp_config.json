@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "local-code-search": {
+      "command": "npx",
+      "args": ["-y", "@llmtooling/code-search-mcp"],
+      "env": {
+        "MAX_FILE_SIZE_KB": "250",
+        "AST_GREP_ENABLED": "true"
+      }
+    },
+    "local-filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ]
+    }
+  }
+}

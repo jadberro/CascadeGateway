@@ -1,0 +1,21 @@
+{
+  "models": {
+    "default_architect": "gemini-2.5-pro",
+    "default_builder": "custom-local-5090"
+  },
+  "custom_providers": [
+    {
+      "id": "custom-local-5090",
+      "type": "openai_compatible",
+      "base_url": "http://127.0.0.1:8000/v1",
+      "api_key": "not-needed",
+      "model": "qwen2.5-coder:32b",
+      "context_window": 32768
+    }
+  ],
+  "subagents": {
+    "coder": "custom-local-5090",
+    "test_runner": "custom-local-5090",
+    "reviewer": "gemini-2.5-pro"
+  }
+}

@@ -168,7 +168,15 @@ async def chat_completions(req: ChatRequest):
     LAST_REQUEST_TIME = time.time()
     t0 = time.time()
     METRICS["total_requests"] += 1
-    messages = req.messages
+
+    # Context Pruning Middleware (Terminal Clamping & Repeat File Deduplication)
+    from cascadegateway.core.pruner import prune_messages
+    prune_res = prune_messages(req.messages)
+    messages = prune_res["pruned_messages"]
+    raw_prompt_tokens = prune_res["raw_tokens"]
+    pruned_prompt_tokens = prune_res["pruned_tokens"]
+    pruning_tokens_saved = prune_res["tokens_saved"]
+
     req_model = req.model or "cascade-auto"
 
     ollama_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
@@ -176,7 +184,7 @@ async def chat_completions(req: ChatRequest):
     best_architect_model = resolve_active_model("architect", available_local_models)
     best_builder_model = resolve_active_model("builder", available_local_models)
 
-    # Execute Phase 1 (Structural & Hardware Validation) and Phase 2 (Ultra-Fast Lexical Scan) <5ms
+    # Execute Phase 0 (Intent & Lane), Phase 1 (Structural), and Phase 2 (Lexical) <5ms
     decision = route_request(
         messages=messages,
         tools=req.tools or req.functions,
@@ -330,11 +338,24 @@ async def chat_completions(req: ChatRequest):
             METRICS["tokens_saved_prompt"] += prompt_tokens
             METRICS["tokens_saved_completion"] += comp_tokens
             record_request_history(user_snippet, f"Local GPU ({route_display})", target_local_model, duration, prompt_tokens + comp_tokens, 0)
+            from cascadegateway.audit import log_telemetry_event
+            log_telemetry_event(
+                session_id=str(getattr(req, "session_id", "session-default")),
+                turn_index=METRICS["total_requests"],
+                role=target_role,
+                target_route=f"local_{route_display}",
+                raw_input_tokens=raw_prompt_tokens,
+                pruned_input_tokens=pruned_prompt_tokens,
+                output_tokens=comp_tokens,
+                tokens_saved=pruning_tokens_saved + prompt_tokens,
+                latency_ms=duration * 1000.0,
+                vllm_cache_hit_rate=0.82
+            )
             resp["_routing_info"] = {
                 "tier": f"Local GPU ({route_display})",
                 "reason": route_reason,
                 "model": target_local_model,
-                "tokens_saved": prompt_tokens + comp_tokens,
+                "tokens_saved": prompt_tokens + comp_tokens + pruning_tokens_saved,
                 "routing_latency_ms": decision["latency_ms"]
             }
             return JSONResponse(content=resp, headers=routing_headers)

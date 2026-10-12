@@ -56,7 +56,8 @@ class LexicalClassifier:
         "exploit", "algorithmic complexity", "dynamic programming", "formal verification",
         "formal proof", "distributed consensus", "concurrency hazard", "lock contention",
         "zero-day", "microarchitectural attack", "byzantine fault", "distributed transaction",
-        "system architecture", "tradeoff analysis", "design pattern"
+        "system architecture", "tradeoff analysis", "design pattern", "milestone roadmap",
+        "milestone review", "architectural review", "architectural standpoint"
     ]
 
     LOCAL_TRIGGERS = [
@@ -134,18 +135,7 @@ def route_request(
             "latency_ms": (time.perf_counter() - t_start) * 1000.0
         }
 
-    # Phase 1: Structural & Hardware Validation (<1ms)
-    is_valid_for_local, escalation_reason = validate_structure(messages, tools, hardware_info)
-    if not is_valid_for_local:
-        return {
-            "route": "cloud",
-            "phase": 1,
-            "reason": escalation_reason,
-            "complexity_score": 1.0,
-            "latency_ms": (time.perf_counter() - t_start) * 1000.0
-        }
-
-    # Phase 2: Ultra-Fast Lexical Scan (1-2ms)
+    # Explicit Role & Lane Intent Dispatch (Phase 0)
     user_text = ""
     for m in reversed(messages):
         if m.get("role") == "user":
@@ -156,6 +146,63 @@ def route_request(
                 user_text = " ".join([p.get("text", "") for p in c if isinstance(p, dict) and "text" in p])
             break
 
+    user_lower = user_text.lower()
+    has_tool_history = any(m.get("role") == "tool" or "tool_call_id" in m for m in messages)
+
+    # Architect Lane intent (Section 4.1: @architect, /plan, [architect], milestone reviews, system setup)
+    is_architect_intent = (
+        "@architect" in user_lower or
+        "[architect]" in user_lower or
+        user_lower.startswith("/plan") or
+        "milestone review" in user_lower or
+        "milestone roadmap" in user_lower or
+        "architectural standpoint" in user_lower or
+        "architectural review" in user_lower
+    )
+
+    if is_architect_intent:
+        return {
+            "route": "cloud",
+            "target_role": "architect",
+            "phase": 0,
+            "reason": "Intent trigger matched: Architect Lane (@architect / /plan / milestone review)",
+            "complexity_score": 1.0,
+            "latency_ms": round((time.perf_counter() - t_start) * 1000.0, 3)
+        }
+
+    # Builder Lane intent (subagent tasks, tool execution cycles, coder turns)
+    is_builder_intent = (
+        "@coder" in user_lower or
+        "@builder" in user_lower or
+        "@test_runner" in user_lower or
+        "[builder]" in user_lower or
+        "builder" in req_lower or
+        has_tool_history
+    )
+
+    if is_builder_intent:
+        return {
+            "route": "local_builder",
+            "target_role": "builder",
+            "phase": 0,
+            "reason": "Intent trigger matched: Builder Lane (Subagent / Tool Cycle / Code Loop)",
+            "complexity_score": 0.1,
+            "latency_ms": round((time.perf_counter() - t_start) * 1000.0, 3)
+        }
+
+    # Phase 1: Structural & Hardware Validation (<1ms)
+    is_valid_for_local, escalation_reason = validate_structure(messages, tools, hardware_info)
+    if not is_valid_for_local:
+        return {
+            "route": "cloud",
+            "target_role": "cloud",
+            "phase": 1,
+            "reason": escalation_reason,
+            "complexity_score": 1.0,
+            "latency_ms": (time.perf_counter() - t_start) * 1000.0
+        }
+
+    # Phase 2: Ultra-Fast Lexical Scan (1-2ms)
     route, reason, complexity_score, scan_latency = CLASSIFIER.classify_with_latency(user_text)
 
     # Biasing Override Check
@@ -175,3 +222,27 @@ def route_request(
         "complexity_score": complexity_score,
         "latency_ms": round(total_latency_ms, 3)
     }
+
+
+def classify_intent_and_lane(messages: List[Dict[str, Any]]) -> Tuple[str, bool, str]:
+    """
+    Determines Architect vs Builder execution lane.
+    Returns: (lane, should_use_cloud, reason)
+    """
+    res = route_request(messages)
+    route = res.get("route", "local")
+    is_cloud = (route == "cloud")
+    lane = "architect" if (is_cloud or "architect" in route) else "builder"
+    return lane, is_cloud, res.get("reason", "")
+
+
+def decide_model(messages: List[Dict[str, Any]], dynamic_bias: float = 0.0) -> Tuple[str, bool, str]:
+    """
+    Resolves model and routing decision.
+    Returns: (model_name, should_use_cloud, reason)
+    """
+    lane, should_cloud, reason = classify_intent_and_lane(messages)
+    if should_cloud:
+        return "gemini-2.5-pro", True, reason
+    return "qwen2.5-coder:32b", False, reason
+

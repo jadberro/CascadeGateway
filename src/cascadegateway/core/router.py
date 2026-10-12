@@ -310,13 +310,79 @@ def record_request_history(snippet: str, tier: str, model: str, duration_sec: fl
     save_persistent_metrics()
 
 
+# Cached probed backend base URL
+ACTIVE_LOCAL_BACKEND = {
+    "type": "ollama",
+    "base_url": config.get("local", {}).get("base_url", "http://127.0.0.1:11434"),
+    "api_format": "ollama"  # "ollama" or "openai"
+}
+
+
+async def probe_and_resolve_local_backend() -> Dict[str, str]:
+    """
+    Universal Backend Probe:
+    Auto-detects active local LLM runtime in priority order:
+    1. vLLM / SGLang on port 8000 or custom config (OpenAI format)
+    2. Ollama on port 11434 (native or OpenAI format)
+    3. LM Studio on port 1234 (OpenAI format)
+    """
+    configured_backend = config.get("local", {}).get("backend", "auto").lower()
+    configured_url = config.get("local", {}).get("base_url", "http://127.0.0.1:11434")
+
+    # If explicit non-auto backend configured
+    if configured_backend == "vllm":
+        ACTIVE_LOCAL_BACKEND.update({"type": "vllm", "base_url": configured_url, "api_format": "openai"})
+        return ACTIVE_LOCAL_BACKEND
+    elif configured_backend == "ollama":
+        ACTIVE_LOCAL_BACKEND.update({"type": "ollama", "base_url": configured_url, "api_format": "ollama"})
+        return ACTIVE_LOCAL_BACKEND
+    elif configured_backend == "lmstudio":
+        ACTIVE_LOCAL_BACKEND.update({"type": "lmstudio", "base_url": configured_url, "api_format": "openai"})
+        return ACTIVE_LOCAL_BACKEND
+
+    # Auto-detection probe
+    probe_targets = [
+        {"type": "vllm", "url": "http://127.0.0.1:8000", "test_endpoint": "/v1/models", "format": "openai"},
+        {"type": "ollama", "url": configured_url, "test_endpoint": "/api/tags", "format": "ollama"},
+        {"type": "ollama", "url": "http://127.0.0.1:11434", "test_endpoint": "/api/tags", "format": "ollama"},
+        {"type": "lmstudio", "url": "http://127.0.0.1:1234", "test_endpoint": "/v1/models", "format": "openai"},
+    ]
+
+    async with httpx.AsyncClient(timeout=0.8) as client:
+        for target in probe_targets:
+            try:
+                resp = await client.get(f"{target['url']}{target['test_endpoint']}")
+                if resp.status_code == 200:
+                    ACTIVE_LOCAL_BACKEND.update({
+                        "type": target["type"],
+                        "base_url": target["url"],
+                        "api_format": target["format"]
+                    })
+                    return ACTIVE_LOCAL_BACKEND
+            except Exception:
+                continue
+
+    return ACTIVE_LOCAL_BACKEND
+
+
 async def get_available_ollama_models(base_url: str) -> List[str]:
+    """Discovers available models from active local backend (vLLM, Ollama, LM Studio)."""
+    backend = await probe_and_resolve_local_backend()
+    target_url = backend["base_url"]
+    api_format = backend["api_format"]
+
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"{base_url}/api/tags")
-            if resp.status_code == 200:
-                data = resp.json()
-                return [m["name"] for m in data.get("models", [])]
+            if api_format == "openai":
+                resp = await client.get(f"{target_url}/v1/models")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return [m["id"] for m in data.get("data", [])]
+            else:
+                resp = await client.get(f"{target_url}/api/tags")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return [m["name"] for m in data.get("models", [])]
     except Exception:
         pass
     return []
@@ -324,7 +390,27 @@ async def get_available_ollama_models(base_url: str) -> List[str]:
 
 async def call_ollama_non_streaming(base_url: str, model: str, messages: List[Dict[str, Any]], **kwargs) -> Dict[str, Any]:
     timeout = config.get("local", {}).get("timeout_seconds", 120)
+    backend = await probe_and_resolve_local_backend()
+    target_url = backend["base_url"]
+    api_format = backend["api_format"]
+
     async with httpx.AsyncClient(timeout=timeout) as client:
+        # 1. vLLM / LM Studio / OpenAI-compatible backend
+        if api_format == "openai":
+            payload = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "temperature": kwargs.get("temperature", 0.7),
+            }
+            if "max_tokens" in kwargs and kwargs["max_tokens"] is not None:
+                payload["max_tokens"] = kwargs["max_tokens"]
+
+            resp = await client.post(f"{target_url}/v1/chat/completions", json=payload)
+            resp.raise_for_status()
+            return resp.json()
+
+        # 2. Native Ollama API backend
         payload = {
             "model": model,
             "messages": messages,
@@ -335,7 +421,7 @@ async def call_ollama_non_streaming(base_url: str, model: str, messages: List[Di
         if "max_tokens" in kwargs and kwargs["max_tokens"] is not None:
             payload["options"]["num_predict"] = kwargs["max_tokens"]
 
-        resp = await client.post(f"{base_url}/api/chat", json=payload)
+        resp = await client.post(f"{target_url}/api/chat", json=payload)
         resp.raise_for_status()
         data = resp.json()
 

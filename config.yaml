@@ -4,6 +4,7 @@ server:
   port: 8000
 
 local:
+  backend: "auto"  # "auto" (probes vLLM:8000 -> Ollama:11434 -> LM Studio:1234), or explicitly "ollama" / "vllm"
   provider: "ollama"
   base_url: "http://127.0.0.1:11434"
   # Primary workhorse on RTX 5090 (32GB GDDR7)
