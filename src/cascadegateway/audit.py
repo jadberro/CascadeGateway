@@ -29,12 +29,15 @@ def log_telemetry_event(
     vllm_cache_hit_rate: float = 0.0,
     custom_filepath: Optional[str] = None,
     file_path: Optional[str] = None,
+    session_id: Optional[str] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """Logs a single turn telemetry event into JSONL storage."""
     chosen_path = file_path or custom_filepath
     target_path = Path(chosen_path) if chosen_path else TELEMETRY_FILE
     target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    actual_session_id = session_id or (session_id_or_event if isinstance(session_id_or_event, str) else "default_session")
 
     if isinstance(session_id_or_event, dict):
         event = dict(session_id_or_event)
@@ -43,7 +46,7 @@ def log_telemetry_event(
     else:
         event = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "session_id": str(session_id_or_event),
+            "session_id": actual_session_id,
             "turn_index": turn_index,
             "role": role,
             "target_route": target_route,
