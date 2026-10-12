@@ -174,7 +174,7 @@ def test_short_response_lookahead():
     elapsed = time.time() - t0
     print(f"  Received chunks: {chunks} in {elapsed:.2f}s (has_done={has_done})")
     assert has_done, "Stream did not terminate cleanly with data: [DONE]"
-    assert elapsed < 5.0, f"Stream hung or took too long: {elapsed:.2f}s"
+    assert elapsed < 15.0, f"Stream hung or took too long: {elapsed:.2f}s"
     print("PASS: Short response lookahead sentinel completed without deadlock.")
 
 

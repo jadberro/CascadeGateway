@@ -171,3 +171,61 @@ def test_compare_sessions(tmp_path):
     assert "Cloud Token Reduction" in report
     assert "Local RTX 5090 Execution Ratio" in report
     assert "%" in report
+
+
+# =====================================================================
+# 5. Direct-to-Disk MCP Tool Tests (Zero Context Churn)
+# =====================================================================
+def test_generate_and_write_file_5090(tmp_path, monkeypatch):
+    from cascadegateway.mcp.server import generate_and_write_file_5090
+
+    # Mock query_local_5090 to simulate 5090 response
+    sample_code = "```python\ndef calculate_sum(a: int, b: int) -> int:\n    return a + b\n```"
+    monkeypatch.setattr("cascadegateway.mcp.server.query_local_5090", lambda prompt, system_prompt: sample_code)
+
+    target_file = tmp_path / "calc.py"
+    res_str = generate_and_write_file_5090(
+        file_path=str(target_file),
+        prompt="Write a function to sum two numbers."
+    )
+    
+    res = json.loads(res_str)
+    assert res["status"] == "success"
+    assert res["syntax_valid"] is True
+    assert res["lines"] == 2
+    assert res["cloud_tokens_saved"] > 0
+    assert target_file.exists()
+    assert "def calculate_sum" in target_file.read_text(encoding="utf-8")
+
+    # Test overwrite=False protection
+    res_err_str = generate_and_write_file_5090(
+        file_path=str(target_file),
+        prompt="Try overwriting",
+        overwrite=False
+    )
+    res_err = json.loads(res_err_str)
+    assert res_err["status"] == "error"
+    assert "already exists" in res_err["error"]
+
+
+def test_patch_file_5090(tmp_path, monkeypatch):
+    from cascadegateway.mcp.server import patch_file_5090
+
+    target_file = tmp_path / "module.py"
+    target_file.write_text("def get_value():\n    return 10\n", encoding="utf-8")
+
+    # Mock query_local_5090 replacement
+    replacement_code = "```python\ndef get_value():\n    return 42\n```"
+    monkeypatch.setattr("cascadegateway.mcp.server.query_local_5090", lambda prompt, system_prompt: replacement_code)
+
+    res_str = patch_file_5090(
+        file_path=str(target_file),
+        instruction="Change return value to 42",
+        search_block="def get_value():\n    return 10"
+    )
+
+    res = json.loads(res_str)
+    assert res["status"] == "success"
+    assert res["syntax_valid"] is True
+    assert "42" in target_file.read_text(encoding="utf-8")
+
